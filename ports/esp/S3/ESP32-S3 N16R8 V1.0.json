@@ -1,0 +1,38 @@
+{
+    "I8080_IO": {
+        "enable": 0,
+        "GPIO": [
+            13, 12, 11, 10,  9, 46,  3,  8,
+            18, 17, 16, 15,  7,  6,  5,  4
+        ],
+        "DC":38,
+        "WR":45,
+        "RD":14,
+        "CS":39
+    },
+    "SPI": {
+        "enable": 0,
+        "SPI_List":[
+            {
+                "Device":"SD",
+                "GPIO":{"SCK":47 ,"MOSI":21 ,"MISO":48,"CS":48}
+            }
+        ]
+
+    },
+    "I2C": {
+        "enable": 0,
+        "i2c_List":[
+            {"Device":"GT1151Q","GPIO":{"SCK":40,"SDA":41},"address":["0x40"],"INT":42},
+            {"Device":"XL9555","GPIO":{"SCK":1,"SDA":2},"address":["0x20"]}
+        ]
+
+    },
+    "XL9555":{
+        "00":"TP_RST",
+        "01":"LCD_RST",
+        "02":"SD_CS",
+        "03":"BL_CTR",
+        "04":"LED1"
+    }
+}
