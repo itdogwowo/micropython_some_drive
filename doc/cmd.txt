@@ -1,0 +1,11 @@
+python3 make.py esp32 BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT DISPLAY=st7796 INDEV=gt911
+
+
+python3 make.py esp32 BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT DISPLAY= ST7789 --dual-core-threads 
+
+python3 make.py esp32 BOARD=ESP32_GENERIC_S3                          DISPLAY= ST7789 --dual-core-threads 
+
+
+python3 make.py esp32 BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT DISPLAY=ST7789 --flash-size=4
+
+python3 make.py esp32 BOARD=ESP32_GENERIC_S3                          DISPLAY=ST7789 --flash-size=4
