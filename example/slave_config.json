@@ -1,0 +1,28 @@
+{
+  "version": "3.0",
+  "description": "PXLD v3 簡化配置 - 所有 LED 固定 4 字節",
+  "slaves": [
+    {
+      "slave_id": 0,
+      "outputs": [
+        {
+          "type": "RGB",
+          "count": 320
+        },
+        {
+          "type": "MONO",
+          "count": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 1,
+      "outputs": [
+        {
+          "type": "RGB",
+          "count": 325
+        }
+      ]
+    }
+  ]
+}
