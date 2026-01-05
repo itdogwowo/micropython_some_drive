@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PXLD 動畫播放器 - 完整版</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #2d3748;
+        }
+        
+        h1 {
+            color: #63b3ed;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .subtitle {
+            color: #a0aec0;
+            font-size: 1.1rem;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 30px;
+        }
+        
+        @media (max-width: 1000px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .control-panel {
+            background: rgba(45, 55, 72, 0.7);
+            border-radius: 12px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            border: 1px solid #4a5568;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        .visualization {
+            background: rgba(26, 32, 44, 0.8);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #4a5568;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            min-height: 600px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .canvas-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            overflow: auto;
+            margin-bottom: 20px;
+            min-height: 450px;
+        }
+        
+        canvas {
+            display: block;
+            background: #0f1419;
+            border-radius: 4px;
+            image-rendering: pixelated;
+        }
+        
+        .file-section {
+            margin-bottom: 25px;
+        }
+        
+        .file-section h3 {
+            margin-bottom: 12px;
+            color: #cbd5e0;
+        }
+        
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            background: #2d3748;
+            border: 2px dashed #4a5568;
+            border-radius: 8px;
+            color: #cbd5e0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        input[type="file"]:hover {
+            border-color: #63b3ed;
+            background: #374151;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(66, 153, 225, 0.4);
+            background: linear-gradient(135deg, #3182ce 0%, #2c5282 100%);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .playback-controls {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin: 20px 0;
+        }
+        
+        .playback-controls button {
+            padding: 12px;
+            margin-top: 0;
+        }
+        
+        .info-panel {
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #374151;
+        }
+        
+        .info-item:last-child {
+            margin-bottom: 0;
+            border-bottom: none;
+        }
+        
+        .info-label {
+            color: #a0aec0;
+            font-weight: 500;
+        }
+        
+        .info-value {
+            color: #63b3ed;
+            font-weight: 600;
+        }
+        
+        .slider-container {
+            margin: 20px 0;
+        }
+        
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            color: #cbd5e0;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            -webkit-appearance: none;
+            background: #4a5568;
+            border-radius: 3px;
+            outline: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #4299e1;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: #63b3ed;
+        }
+        
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #4299e1;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+        
+        .slave-selector {
+            margin: 20px 0;
+        }
+        
+        .slave-selector h3 {
+            margin-bottom: 12px;
+            color: #cbd5e0;
+        }
+        
+        select {
+            width: 100%;
+            padding: 12px;
+            background: #2d3748;
+            color: #cbd5e0;
+            border: 1px solid #4a5568;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        
+        select:hover {
+            border-color: #63b3ed;
+        }
+        
+        .led-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .stat-card {
+            background: rgba(45, 55, 72, 0.6);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border-left: 4px solid #4299e1;
+        }
+        
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #63b3ed;
+            margin: 5px 0;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: #a0aec0;
+        }
+        
+        .status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(23, 25, 35, 0.95);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #2d3748;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
+        
+        .frame-info {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .progress-bar {
+            flex: 1;
+            height: 6px;
+            background: #4a5568;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 0 20px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4299e1, #63b3ed);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 5px solid #4a5568;
+            border-top-color: #4299e1;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        .loading-text {
+            color: #cbd5e0;
+            font-size: 1.2rem;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .warning {
+            background: rgba(234, 179, 8, 0.1);
+            border-left: 4px solid #eab308;
+            padding: 12px;
+            border-radius: 4px;
+            margin-top: 15px;
+            font-size: 0.9rem;
+        }
+        
+        .led-type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 5px;
+        }
+        
+        .badge-ws2812b {
+            background: rgba(139, 92, 246, 0.2);
+            color: #a78bfa;
+            border: 1px solid #8b5cf6;
+        }
+        
+        .badge-apa102c {
+            background: rgba(34, 197, 94, 0.2);
+            color: #4ade80;
+            border: 1px solid #22c55e;
+        }
+        
+        .badge-standard {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+            border: 1px solid #f59e0b;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">正在載入和解析檔案...</div>
+    </div>
+    
+    <div class="container">
+        <header>
+            <h1>🎨 PXLD 動畫播放器</h1>
+            <p class="subtitle">支援單色 LED、RGB LED 和 WS2812B 的完整播放器</p>
+        </header>
+        
+        <div class="main-content">
+            <!-- 控制面板 -->
+            <div class="control-panel">
+                <!-- 檔案載入 -->
+                <div class="file-section">
+                    <h3>📁 載入 PXLD 檔案</h3>
+                    <input type="file" id="fileInput" accept=".pxld">
+                    <button id="loadBtn" onclick="loadFile()">
+                        載入並解析檔案
+                    </button>
+                    <div class="warning">
+                        <strong>⚠️ 注意：</strong> 檔案需符合 PXLD 規範，包含 64 bytes 標頭和影格資料。
+                    </div>
+                </div>
+                
+                <!-- Slave 選擇器 -->
+                <div class="slave-selector">
+                    <h3>🎯 Slave 選擇</h3>
+                    <select id="slaveSelect" onchange="changeSlaveDisplay(this.value)" disabled>
+                        <option value="-1">全部顯示</option>
+                    </select>
+                    <div id="slaveInfo" class="info-panel" style="display: none;">
+                        <div class="info-item">
+                            <span class="info-label">Slave ID</span>
+                            <span class="info-value" id="currentSlaveId">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">通道範圍</span>
+                            <span class="info-value" id="slaveChannels">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">LED 組成</span>
+                            <span class="info-value" id="slaveLedTypes">-</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 播放控制 -->
+                <div class="playback-controls">
+                    <button id="playBtn" onclick="togglePlay()" disabled>
+                        ▶️ 播放
+                    </button>
+                    <button id="pauseBtn" onclick="pausePlayback()" disabled>
+                        ⏸️ 暫停
+                    </button>
+                    <button id="stopBtn" onclick="stopPlayback()" disabled>
+                        ⏹️ 停止
+                    </button>
+                </div>
+                
+                <!-- 速度控制 -->
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>⚡ 播放速度</span>
+                        <span id="speedValue">1.0x</span>
+                    </div>
+                    <input type="range" id="speedSlider" min="0.1" max="3" step="0.1" value="1" oninput="updateSpeed(this.value)">
+                </div>
+                
+                <!-- 影格控制 -->
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>🎞️ 影格控制</span>
+                        <span id="frameValue">0 / 0</span>
+                    </div>
+                    <input type="range" id="frameSlider" min="0" max="100" value="0" oninput="seekFrame(this.value)" disabled>
+                </div>
+                
+                <!-- 檔案資訊 -->
+                <div class="info-panel" id="fileInfo" style="display: none;">
+                    <h3>📊 檔案資訊</h3>
+                    <div class="info-item">
+                        <span class="info-label">檔案格式</span>
+                        <span class="info-value" id="magic">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">版本</span>
+                        <span class="info-value" id="version">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">FPS</span>
+                        <span class="info-value" id="fps">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Slave 數量</span>
+                        <span class="info-value" id="slaves">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">總影格數</span>
+                        <span class="info-value" id="totalFrames">-</span>
+                    </div>
+                    
+                    <div class="led-stats">
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalChannels">0</div>
+                            <div class="stat-label">總通道數</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalPixels">0</div>
+                            <div class="stat-label">總 LED 數</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 視覺化區域 -->
+            <div class="visualization">
+                <h3>🖼️ LED 視覺化顯示</h3>
+                <div class="canvas-container">
+                    <canvas id="ledCanvas"></canvas>
+                </div>
+                <div class="info-panel">
+                    <div class="info-item">
+                        <span class="info-label">當前影格</span>
+                        <span class="info-value" id="currentFrame">0</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">播放狀態</span>
+                        <span class="info-value" id="playStatus">未載入</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">顯示模式</span>
+                        <span class="info-value" id="displayMode">全部</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 狀態列 -->
+    <div class="status-bar">
+        <div class="frame-info">
+            <div>影格: <span id="statusFrame">0</span>/<span id="statusTotalFrames">0</span></div>
+            <div>時間: <span id="statusTime">0.0s</span></div>
+            <div>實際 FPS: <span id="statusFPS">0</span></div>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div>頻寬: <span id="statusBandwidth">0</span> Mbps</div>
+    </div>
+
+    <script>
+        // ==================== LED 類型配置 ====================
+        // 根據文檔 [1] 定義各 Slave 的 LED 配置
+        const LED_CONFIGURATIONS = {
+            0: [ // Slave 0 配置
+                {
+                    type: 'APA102C',
+                    label: 'broken_mirror_rgb',
+                    description: '破鏡 RGB',
+                    count: 190,
+                    channels_per_pixel: 3,
+                    data_offset: 0,
+                    data_length: 570
+                },
+                {
+                    type: 'APA102C',
+                    label: 'smoke_rgb',
+                    description: '煙雲 RGB',
+                    count: 100,
+                    channels_per_pixel: 3,
+                    data_offset: 570,
+                    data_length: 300
+                },
+                {
+                    type: 'WS2812B',
+                    label: 'gundam_rgb',
+                    description: '高達 RGB',
+                    count: 30,
+                    channels_per_pixel: 3,
+                    data_offset: 870,
+                    data_length: 90
+                },
+                {
+                    type: 'STANDARD_LED',
+                    label: 'gundam_led',
+                    description: '高達單色 LED',
+                    count: 16,
+                    channels_per_pixel: 1,
+                    data_offset: 960,
+                    data_length: 16
+                }
+            ]
+            // 可以繼續添加其他 Slave 的配置
+        };
+
+        // ==================== PXLD 解碼器 ====================
+        class PXLDDecoder {
+            constructor() {
+                this.header = null;
+                this.frames = [];
+                this.currentFrame = 0;
+                
+                // 常數定義
+                this.HEADER_SIZE = 64;
+                this.FRAME_SIZE = 32620;
+                this.FRAME_HEADER_SIZE = 16;
+                this.SLAVE_HEADER_SIZE = 396;
+                this.PIXEL_DATA_SIZE = 32208;
+                this.TOTAL_SLAVES = 33;
+                this.CHANNELS_PER_SLAVE = 976;
+            }
+            
+            // 解析檔案標頭
+            parseHeader(dataView) {
+                let magic = '';
+                for (let i = 0; i < 4; i++) {
+                    magic += String.fromCharCode(dataView.getUint8(i));
+                }
+                
+                if (magic !== 'PXLD') {
+                    throw new Error(`無效的 PXLD 檔案，預期 'PXLD' 但得到 '${magic}'`);
+                }
+                
+                const majorVersion = dataView.getUint8(4);
+                const minorVersion = dataView.getUint8(5);
+                const fps = dataView.getUint8(6);
+                const totalSlaves = dataView.getUint8(7);
+                const totalChannels = dataView.getUint32(8, true);
+                const totalPixels = dataView.getUint32(12, true);
+                const udpPort = dataView.getUint16(16, true);
+                
+                this.header = {
+                    magic,
+                    version: `${majorVersion}.${minorVersion}`,
+                    fps,
+                    totalSlaves,
+                    totalChannels,
+                    totalPixels,
+                    udpPort,
+                    majorVersion,
+                    minorVersion
+                };
+                
+                return this.header;
+            }
+            
+            // 解析整個檔案
+            parseFile(arrayBuffer) {
+                const dataView = new DataView(arrayBuffer);
+                const fileSize = arrayBuffer.byteLength;
+                
+                this.header = this.parseHeader(dataView);
+                
+                const dataStart = this.HEADER_SIZE;
+                const frameCount = Math.floor((fileSize - dataStart) / this.FRAME_SIZE);
+                
+                this.frames = [];
+                this.frameData = new Array(frameCount);
+                
+                for (let frameIdx = 0; frameIdx < frameCount; frameIdx++) {
+                    const frameOffset = dataStart + (frameIdx * this.FRAME_SIZE);
+                    this.frameData[frameIdx] = {
+                        offset: frameOffset,
+                        pixelDataOffset: frameOffset + this.FRAME_HEADER_SIZE + this.SLAVE_HEADER_SIZE
+                    };
+                }
+                
+                return {
+                    frameCount,
+                    fileSize,
+                    header: this.header
+                };
+            }
+            
+            // 取得指定影格的像素資料
+            getFramePixelData(frameIdx, dataView) {
+                if (frameIdx < 0 || frameIdx >= this.frameData.length) {
+                    return null;
+                }
+                
+                const frame = this.frameData[frameIdx];
+                const pixelData = new Uint8Array(this.PIXEL_DATA_SIZE);
+                
+                for (let i = 0; i < this.PIXEL_DATA_SIZE; i++) {
+                    pixelData[i] = dataView.getUint8(frame.pixelDataOffset + i);
+                }
+                
+                return pixelData;
+            }
+            
+            // 提取指定 Slave 的資料，正確處理不同 LED 類型
+            extractSlaveData(pixelData, slaveId) {
+                const slaveStart = slaveId * this.CHANNELS_PER_SLAVE;
+                const slaveData = pixelData.slice(slaveStart, slaveStart + this.CHANNELS_PER_SLAVE);
+                const ledConfig = LED_CONFIGURATIONS[slaveId];
+                
+                const leds = [];
+                
+                if (ledConfig) {
+                    // 使用配置解析
+                    for (const section of ledConfig) {
+                        const offset = section.data_offset;
+                        
+                        if (section.type === 'STANDARD_LED') {
+                            // 單色 LED：每個 LED 只佔 1 byte [1]
+                            for (let i = 0; i < section.count; i++) {
+                                const value = slaveData[offset + i];
+                                leds.push({
+                                    r: value,
+                                    g: value,
+                                    b: value,
+                                    type: 'STANDARD_LED',
+                                    label: section.label,
+                                    isMono: true
+                                });
+                            }
+                        } else if (section.type === 'WS2812B') {
+                            // WS2812B：GRB 順序 [1]
+                            for (let i = 0; i < section.count; i++) {
+                                const idx = offset + (i * 3);
+                                const g = slaveData[idx];
+                                const r = slaveData[idx + 1];
+                                const b = slaveData[idx + 2];
+                                leds.push({
+                                    r, g, b,
+                                    type: 'WS2812B',
+                                    label: section.label,
+                                    isMono: false
+                                });
+                            }
+                        } else {
+                            // APA102C 和其他：標準 RGB 順序
+                            for (let i = 0; i < section.count; i++) {
+                                const idx = offset + (i * 3);
+                                const r = slaveData[idx];
+                                const g = slaveData[idx + 1];
+                                const b = slaveData[idx + 2];
+                                leds.push({
+                                    r, g, b,
+                                    type: section.type,
+                                    label: section.label,
+                                    isMono: false
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    // 沒有配置時的通用解析（假設全部為 RGB）
+                    for (let i = 0; i < this.CHANNELS_PER_SLAVE; i += 3) {
+                        if (i + 2 >= this.CHANNELS_PER_SLAVE) break;
+                        leds.push({
+                            r: slaveData[i],
+                            g: slaveData[i + 1],
+                            b: slaveData[i + 2],
+                            type: 'UNKNOWN',
+                            label: 'unknown',
+                            isMono: false
+                        });
+                    }
+                }
+                
+                return leds;
+            }
+        }
+
+        // ==================== 播放器 ====================
+        class PXLDPlayer {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.decoder = new PXLDDecoder();
+                this.arrayBuffer = null;
+                this.dataView = null;
+                
+                this.isPlaying = false;
+                this.currentFrameIndex = 0;
+                this.totalFrames = 0;
+                this.playbackSpeed = 1.0;
+                this.animationId = null;
+                this.lastFrameTime = 0;
+                this.selectedSlaveId = -1;
+                
+                this.frameTimes = [];
+                this.fps = 0;
+                
+                this.ledSize = 10;
+                this.ledSpacing = 3;
+                
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+            }
+            
+            resizeCanvas() {
+                const container = this.canvas.parentElement;
+                const width = container.clientWidth - 40;
+                const height = container.clientHeight - 40;
+                
+                this.canvas.width = Math.max(800, width);
+                this.canvas.height = Math.max(400, height);
+                
+                this.renderFrame();
+            }
+            
+            async loadFile(file) {
+                showLoading(true);
+                
+                try {
+                    this.arrayBuffer = await file.arrayBuffer();
+                    this.dataView = new DataView(this.arrayBuffer);
+                    
+                    const fileInfo = this.decoder.parseFile(this.arrayBuffer);
+                    this.totalFrames = fileInfo.frameCount;
+                    
+                    updateFileInfo(fileInfo.header, this.totalFrames);
+                    this.updateSlaveSelector();
+                    updateFrameSlider(this.totalFrames);
+                    
+                    this.currentFrameIndex = 0;
+                    this.renderFrame();
+                    
+                    enableControls(true);
+                    
+                    console.log('檔案載入成功:', fileInfo);
+                    
+                } catch (error) {
+                    alert(`載入檔案時發生錯誤: ${error.message}`);
+                    console.error('解析錯誤:', error);
+                } finally {
+                    showLoading(false);
+                }
+            }
+            
+            updateSlaveSelector() {
+                const select = document.getElementById('slaveSelect');
+                
+                while (select.options.length > 1) {
+                    select.remove(1);
+                }
+                
+                for (let i = 0; i < this.decoder.TOTAL_SLAVES; i++) {
+                    const option = document.createElement('option');
+                    option.value = i;
+                    option.textContent = `Slave ${i} (通道 ${i * 976 + 1}-${(i + 1) * 976})`;
+                    select.appendChild(option);
+                }
+                
+                select.disabled = false;
+            }
+            
+            renderFrame(frameIdx = null) {
+                if (frameIdx !== null) {
+                    this.currentFrameIndex = Math.max(0, Math.min(frameIdx, this.totalFrames - 1));
+                }
+                
+                if (!this.arrayBuffer || this.totalFrames === 0) {
+                    this.renderPlaceholder();
+                    return;
+                }
+                
+                const pixelData = this.decoder.getFramePixelData(this.currentFrameIndex, this.dataView);
+                if (!pixelData) return;
+                
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                if (this.selectedSlaveId >= 0) {
+                    this.renderSingleSlave(pixelData, this.selectedSlaveId);
+                } else {
+                    this.renderAllSlaves(pixelData);
+                }
+                
+                updateFrameDisplay(this.currentFrameIndex, this.totalFrames);
+                updateStatusBar(this.currentFrameIndex, this.totalFrames, this.decoder.header.fps, this.fps);
+            }
+            
+            renderSingleSlave(pixelData, slaveId) {
+                const leds = this.decoder.extractSlaveData(pixelData, slaveId);
+                
+                const cols = 40;
+                const ledWidth = Math.min(this.ledSize, (this.canvas.width - 40) / cols);
+                const spacing = this.ledSpacing;
+                
+                let x = 20;
+                let y = 20;
+                let count = 0;
+                let currentSection = null;
+                let sectionStartY = y;
+                
+                const config = LED_CONFIGURATIONS[slaveId];
+                
+                for (let i = 0; i < leds.length; i++) {
+                    const led = leds[i];
+                    
+                    // 檢查是否進入新的 section
+                    if (config) {
+                        let accumulated = 0;
+                        for (const section of config) {
+                            if (i >= accumulated && i < accumulated + section.count) {
+                                if (currentSection !== section.label) {
+                                    if (currentSection !== null) {
+                                        y += 10; // section 之間加間距
+                                    }
+                                    currentSection = section.label;
+                                    sectionStartY = y;
+                                    
+                                    // 繪製 section 標籤
+                                    this.ctx.fillStyle = '#cbd5e0';
+                                    this.ctx.font = 'bold 12px monospace';
+                                    this.ctx.fillText(`${section.description} (${section.type})`, x, y);
+                                    y += 20;
+                                    x = 20;
+                                    count = 0;
+                                }
+                                break;
+                            }
+                            accumulated += section.count;
+                        }
+                    }
+                    
+                    // 繪製 LED
+                    this.ctx.fillStyle = `rgb(${led.r}, ${led.g}, ${led.b})`;
+                    this.ctx.beginPath();
+                    
+                    if (led.isMono) {
+                        // 單色 LED 使用方形表示
+                        this.ctx.fillRect(x, y, ledWidth - 2, ledWidth - 2);
+                    } else {
+                        // RGB LED 使用圓形表示
+                        this.ctx.arc(x + ledWidth/2, y + ledWidth/2, ledWidth/2 - 1, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    }
+                    
+                    // 光暈效果
+                    if (led.r + led.g + led.b > 30) {
+                        this.ctx.shadowColor = `rgb(${led.r}, ${led.g}, ${led.b})`;
+                        this.ctx.shadowBlur = led.isMono ? 5 : 12;
+                        if (led.isMono) {
+                            this.ctx.fillRect(x, y, ledWidth - 2, ledWidth - 2);
+                        } else {
+                            this.ctx.fill();
+                        }
+                        this.ctx.shadowBlur = 0;
+                    }
+                    
+                    count++;
+                    x += ledWidth + spacing;
+                    
+                    if (count % cols === 0) {
+                        x = 20;
+                        y += ledWidth + spacing;
+                    }
+                    
+                    if (y + ledWidth > this.canvas.height - 60) {
+                        break;
+                    }
+                }
+                
+                // 顯示統計
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                this.ctx.font = 'bold 14px monospace';
+                this.ctx.fillText(`Slave ${slaveId} - 顯示 ${leds.length} 個 LED`, 20, this.canvas.height - 30);
+                
+                if (config) {
+                    this.ctx.font = '12px monospace';
+                    let info = '';
+                    for (const section of config) {
+                        info += `${section.description}:${section.count} `;
+                    }
+                    this.ctx.fillText(info, 20, this.canvas.height - 15);
+                }
+                
+                updateSlaveInfo(slaveId);
+                updateDisplayMode(`Slave ${slaveId}`);
+            }
+            
+            renderAllSlaves(pixelData) {
+                const cols = 100;
+                const ledWidth = Math.min(6, (this.canvas.width - 40) / cols);
+                const spacing = 2;
+                
+                let x = 20;
+                let y = 20;
+                let count = 0;
+                
+                const displayCount = Math.min(3000, pixelData.length / 3);
+                
+                for (let i = 0; i < displayCount * 3; i += 3) {
+                    const r = pixelData[i];
+                    const g = pixelData[i + 1];
+                    const b = pixelData[i + 2];
+                    
+                    this.ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                    this.ctx.beginPath();
+                    this.ctx.arc(x + ledWidth/2, y + ledWidth/2, ledWidth/2, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    
+                    if (r + g + b > 50) {
+                        this.ctx.shadowColor = `rgb(${r}, ${g}, ${b})`;
+                        this.ctx.shadowBlur = 8;
+                        this.ctx.fill();
+                        this.ctx.shadowBlur = 0;
+                    }
+                    
+                    count++;
+                    x += ledWidth + spacing;
+                    
+                    if (count % cols === 0) {
+                        x = 20;
+                        y += ledWidth + spacing;
+                    }
+                    
+                    if (y + ledWidth > this.canvas.height - 40) {
+                        break;
+                    }
+                }
+                
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                this.ctx.font = '13px monospace';
+                this.ctx.fillText(`顯示 ${count} 個 LED (總共 ${this.decoder.header.totalPixels} 個)`, 20, this.canvas.height - 20);
+                
+                updateDisplayMode('全部');
+            }
+            
+            renderPlaceholder() {
+                this.ctx.fillStyle = '#0f1419';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                this.ctx.fillStyle = '#4a5568';
+                this.ctx.font = '20px sans-serif';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText('請載入 PXLD 檔案以開始播放', this.canvas.width/2, this.canvas.height/2);
+                
+                this.ctx.font = '14px sans-serif';
+                this.ctx.fillStyle = '#718096';
+                this.ctx.fillText('支援單色 LED、RGB LED 和 WS2812B', this.canvas.width/2, this.canvas.height/2 + 30);
+            }
+            
+            play() {
+                if (this.isPlaying || this.totalFrames === 0) return;
+                
+                this.isPlaying = true;
+                this.lastFrameTime = performance.now();
+                
+                const animate = (currentTime) => {
+                    if (!this.isPlaying) return;
+                    
+                    const elapsed = currentTime - this.lastFrameTime;
+                    const targetFrameTime = 1000 / (this.decoder.header.fps * this.playbackSpeed);
+                    
+                    if (elapsed >= targetFrameTime) {
+                        this.currentFrameIndex = (this.currentFrameIndex + 1) % this.totalFrames;
+                        this.renderFrame();
+                        this.updateFPS(currentTime);
+                        this.lastFrameTime = currentTime - (elapsed % targetFrameTime);
+                    }
+                    
+                    this.animationId = requestAnimationFrame(animate);
+                };
+                
+                this.animationId = requestAnimationFrame(animate);
+                updatePlaybackStatus('播放中');
+            }
+            
+            pause() {
+                this.isPlaying = false;
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
+                updatePlaybackStatus('已暫停');
+            }
+            
+            stop() {
+                this.pause();
+                this.currentFrameIndex = 0;
+                this.renderFrame();
+                updatePlaybackStatus('已停止');
+            }
+            
+            seek(frameIndex) {
+                frameIndex = Math.max(0, Math.min(frameIndex, this.totalFrames - 1));
+                this.currentFrameIndex = frameIndex;
+                this.renderFrame();
+            }
+            
+            setSpeed(speed) {
+                this.playbackSpeed = speed;
+            }
+            
+            setSelectedSlave(slaveId) {
+                this.selectedSlaveId = parseInt(slaveId);
+                this.renderFrame();
+            }
+            
+            updateFPS(currentTime) {
+                this.frameTimes.push(currentTime);
+                
+                while (this.frameTimes.length > 0 && currentTime - this.frameTimes[0] > 1000) {
+                    this.frameTimes.shift();
+                }
+                
+                this.fps = this.frameTimes.length;
+            }
+        }
+
+        // ==================== 全域變數和函數 ====================
+        let player;
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            player = new PXLDPlayer('ledCanvas');
+            initEventListeners();
+        });
+        
+        function initEventListeners() {
+            document.getElementById('fileInput').addEventListener('change', function(e) {
+                if (this.files.length > 0) {
+                    loadFile();
+                }
+            });
+            
+            document.addEventListener('keydown', (e) => {
+                if (!player || player.totalFrames === 0) return;
+                
+                switch(e.key) {
+                    case ' ':
+                        e.preventDefault();
+                        togglePlay();
+                        break;
+                    case 'ArrowLeft':
+                        e.preventDefault();
+                        player.seek(player.currentFrameIndex - 1);
+                        break;
+                    case 'ArrowRight':
+                        e.preventDefault();
+                        player.seek(player.currentFrameIndex + 1);
+                        break;
+                    case 'Home':
+                        e.preventDefault();
+                        player.seek(0);
+                        break;
+                    case 'End':
+                        e.preventDefault();
+                        player.seek(player.totalFrames - 1);
+                        break;
+                }
+            });
+        }
+        
+        async function loadFile() {
+            const fileInput = document.getElementById('fileInput');
+            if (fileInput.files.length === 0) {
+                alert('請選擇一個檔案');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            await player.loadFile(file);
+        }
+        
+        function togglePlay() {
+            if (!player) return;
+            
+            if (player.isPlaying) {
+                player.pause();
+                document.getElementById('playBtn').innerHTML = '▶️ 播放';
+            } else {
+                player.play();
+                document.getElementById('playBtn').innerHTML = '⏸️ 暫停';
+            }
+        }
+        
+        function pausePlayback() {
+            if (player) {
+                player.pause();
+                document.getElementById('playBtn').innerHTML = '▶️ 播放';
+            }
+        }
+        
+        function stopPlayback() {
+            if (player) {
+                player.stop();
+                document.getElementById('playBtn').innerHTML = '▶️ 播放';
+            }
+        }
+        
+        function updateSpeed(speed) {
+            if (player) {
+                player.setSpeed(parseFloat(speed));
+                document.getElementById('speedValue').textContent = speed + 'x';
+            }
+        }
+        
+        function seekFrame(value) {
+            if (!player || player.totalFrames === 0) return;
+            
+            const frameIndex = Math.floor(value * player.totalFrames / 100);
+            player.seek(frameIndex);
+        }
+        
+        function changeSlaveDisplay(slaveId) {
+            if (player) {
+                player.setSelectedSlave(slaveId);
+            }
+        }
+        
+        function updateFileInfo(header, totalFrames) {
+            document.getElementById('fileInfo').style.display = 'block';
+            document.getElementById('magic').textContent = header.magic;
+            document.getElementById('version').textContent = header.version;
+            document.getElementById('fps').textContent = header.fps;
+            document.getElementById('slaves').textContent = header.totalSlaves;
+            document.getElementById('totalFrames').textContent = totalFrames;
+            document.getElementById('totalChannels').textContent = header.totalChannels.toLocaleString();
+            document.getElementById('totalPixels').textContent = header.totalPixels.toLocaleString();
+        }
+        
+        function updateFrameDisplay(currentFrame, totalFrames) {
+            document.getElementById('currentFrame').textContent = currentFrame + 1;
+            document.getElementById('frameValue').textContent = `${currentFrame + 1} / ${totalFrames}`;
+            
+            const slider = document.getElementById('frameSlider');
+            if (totalFrames > 0) {
+                slider.value = Math.floor((currentFrame / totalFrames) * 100);
+            }
+            
+            document.getElementById('statusFrame').textContent = currentFrame + 1;
+            document.getElementById('statusTotalFrames').textContent = totalFrames;
+            
+            const progress = totalFrames > 0 ? ((currentFrame + 1) / totalFrames) * 100 : 0;
+            document.getElementById('progressFill').style.width = `${progress}%`;
+        }
+        
+        function updateFrameSlider(totalFrames) {
+            const slider = document.getElementById('frameSlider');
+            slider.disabled = totalFrames === 0;
+            slider.max = totalFrames > 0 ? 100 : 0;
+        }
+        
+        function updateStatusBar(currentFrame, totalFrames, fps, actualFps) {
+            const timeInSeconds = (currentFrame + 1) / fps;
+            document.getElementById('statusTime').textContent = timeInSeconds.toFixed(1) + 's';
+            
+            const frameSize = 32620;
+            const bandwidth = (frameSize * 8 * fps) / 1000000;
+            document.getElementById('statusBandwidth').textContent = bandwidth.toFixed(1);
+            
+            document.getElementById('statusFPS').textContent = actualFps || fps;
+        }
+        
+        function updatePlaybackStatus(status) {
+            document.getElementById('playStatus').textContent = status;
+        }
+        
+        function updateDisplayMode(mode) {
+            document.getElementById('displayMode').textContent = mode;
+        }
+        
+        function updateSlaveInfo(slaveId) {
+            const infoPanel = document.getElementById('slaveInfo');
+            
+            if (slaveId < 0) {
+                infoPanel.style.display = 'none';
+                return;
+            }
+            
+            infoPanel.style.display = 'block';
+            
+            const channelStart = slaveId * 976 + 1;
+            const channelEnd = channelStart + 975;
+            
+            document.getElementById('currentSlaveId').textContent = slaveId;
+            document.getElementById('slaveChannels').textContent = `${channelStart} - ${channelEnd}`;
+            
+            const config = LED_CONFIGURATIONS[slaveId];
+            if (config) {
+                let ledTypes = '';
+                for (const section of config) {
+                    const badgeClass = section.type === 'WS2812B' ? 'badge-ws2812b' : 
+                                      section.type === 'STANDARD_LED' ? 'badge-standard' : 'badge-apa102c';
+                    ledTypes += `<span class="led-type-badge ${badgeClass}">${section.type}</span> `;
+                }
+                document.getElementById('slaveLedTypes').innerHTML = ledTypes;
+            } else {
+                document.getElementById('slaveLedTypes').textContent = '未配置';
+            }
+        }
+        
+        function enableControls(enabled) {
+            const controls = ['playBtn', 'pauseBtn', 'stopBtn', 'frameSlider'];
+            controls.forEach(id => {
+                document.getElementById(id).disabled = !enabled;
+            });
+        }
+        
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+    </script>
+</body>
+</html>
