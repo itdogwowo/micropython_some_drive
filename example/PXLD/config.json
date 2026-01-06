@@ -1,0 +1,1094 @@
+{
+  "slaves": [
+    {
+      "slave_id": 0,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 1,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 2,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 3,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 4,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 5,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 6,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 7,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 8,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 9,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 10,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 11,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 12,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 13,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 14,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 15,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 16,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 17,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 18,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 19,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 20,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 21,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 22,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 23,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 24,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 25,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 26,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 27,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 28,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 29,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 30,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 31,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    },
+    {
+      "slave_id": 32,
+      "outputs": [
+        {
+          "type": "APA102C",
+          "count": 190,
+          "bytes_per_pixel": 3,
+          "data_offset": 0,
+          "data_length": 570
+        },
+        {
+          "type": "APA102C",
+          "count": 100,
+          "bytes_per_pixel": 3,
+          "data_offset": 570,
+          "data_length": 300
+        },
+        {
+          "type": "WS2812B",
+          "count": 30,
+          "bytes_per_pixel": 3,
+          "data_offset": 870,
+          "data_length": 90
+        },
+        {
+          "type": "STANDARD_LED",
+          "count": 16,
+          "bytes_per_pixel": 1,
+          "data_offset": 960,
+          "data_length": 16
+        }
+      ]
+    }
+
+  ]
+}

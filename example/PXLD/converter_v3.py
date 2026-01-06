@@ -1,0 +1,496 @@
+#!/usr/bin/env python3
+"""
+PXLD v2 到 v3 格式轉換器 (完整修正版)
+規則: 每個 LED 固定 4 字節,數據順序 RGBW。
+      WS2812B 原始數據為 [G][R][B],轉換為 [R,G,B,W]。
+      APA102C 亮度設置為 0x1F (最高),單色 LED 亮度存入 W 通道。
+      STANDARD_LED 只佔 1 byte,值為 0-255,轉換為 [0,0,0,brightness]
+作者: 基於 PXLD 技術文檔及最新 v3 規範
+"""
+import struct
+import json
+import binascii
+import os
+import sys
+from typing import Dict, List, Tuple, Optional
+from dataclasses import dataclass
+
+# ==================== 常數定義 ====================
+V2_HEADER_SIZE = 64
+V2_FRAME_SIZE = 32620
+V2_FRAME_HEADER_SIZE = 16
+V2_SLAVE_HEADER_SIZE = 396
+V2_PIXEL_DATA_SIZE = 32208
+V2_TOTAL_SLAVES = 33
+V2_CHANNELS_PER_SLAVE = 976
+
+V3_HEADER_SIZE = 64
+V3_FRAME_HEADER_SIZE = 32
+V3_SLAVE_ENTRY_SIZE = 24
+V3_BYTES_PER_LED = 4
+
+V3_MAGIC = b'PXLD'
+V3_MAJOR_VERSION = 3
+V3_MINOR_VERSION = 0
+V3_UDP_PORT = 4050
+V3_CHECKSUM_TYPE = 1
+
+# ==================== 資料結構 ====================
+@dataclass
+class V2Header:
+    magic: str
+    major_version: int
+    minor_version: int
+    fps: int
+    total_slaves: int
+    total_channels: int
+    total_pixels: int
+    udp_port: int
+    
+    @classmethod
+    def from_bytes(cls, data: bytes) -> 'V2Header':
+        magic = data[0:4].decode('ascii', errors='ignore')
+        if magic != 'PXLD':
+            raise ValueError(f"無效的 PXLD 檔案")
+        return cls(
+            magic=magic,
+            major_version=data[4],
+            minor_version=data[5],
+            fps=data[6],
+            total_slaves=data[7],
+            total_channels=struct.unpack('<I', data[8:12])[0],
+            total_pixels=struct.unpack('<I', data[12:16])[0],
+            udp_port=struct.unpack('<H', data[16:18])[0]
+        )
+
+# ==================== 核心轉換器 ====================
+class PXLDv2ToV3Converter:
+    def __init__(self, config_path: Optional[str] = None):
+        self.config_path = config_path
+        self.slave_configs = {}
+        self.stats = {
+            'input_size': 0, 'output_size': 0, 'frames_converted': 0,
+            'total_pixels_v2': 0, 'total_pixels_v3': 0, 'errors': []
+        }
+        self.v2_total_pixels = 0
+        self.v2_total_slaves = 0
+        
+        if config_path:
+            self.load_slave_configs(config_path)
+    
+    def load_slave_configs(self, config_path: str):
+        """載入 Slave 配置檔案 [2]"""
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+            
+            if isinstance(config_data, list):
+                for slave in config_data:
+                    if 'slave_id' in slave:
+                        self.slave_configs[slave['slave_id']] = slave
+            elif 'slaves' in config_data:
+                for slave in config_data['slaves']:
+                    if 'slave_id' in slave:
+                        self.slave_configs[slave['slave_id']] = slave
+            
+            print(f"✅ 已載入 {len(self.slave_configs)} 個 Slave 配置")
+            
+            # 顯示配置詳情
+            for slave_id, config in self.slave_configs.items():
+                total_leds = sum(output.get('count', 0) for output in config.get('outputs', []))
+                print(f"   Slave {slave_id}: {total_leds} LEDs")
+                for output in config.get('outputs', []):
+                    print(f"      - {output.get('label')}: {output.get('count')} × {output.get('type')}")
+                    
+        except Exception as e:
+            print(f"⚠️  無法載入配置檔案: {e}")
+            print("⚠️  將使用預設配置規則")
+    
+    def convert_led_data(self, led_type: str, original_data: bytes) -> bytes:
+        """
+        將單個 LED 的原始資料轉換為 4 字節 RGBW 格式
+        
+        參數:
+            led_type: LED 類型 (WS2812B, APA102C, STANDARD_LED)
+            original_data: 原始數據 (1-3 bytes)
+        
+        返回:
+            4 bytes RGBW 數據
+        """
+        if led_type == 'WS2812B':
+            # WS2812B: 原始順序為 [G][R][B],轉換為 [R,G,B,W]
+            if len(original_data) >= 3:
+                r, g, b = original_data[0], original_data[1], original_data[2]
+                return bytes([r, g, b, 0xFF])
+            else:
+                return bytes([0x00, 0x00, 0x00, 0xFF])
+                
+        elif led_type == 'APA102C':
+            # APA102C: 原始順序為 [R,G,B],W 通道設為最大亮度
+            if len(original_data) >= 3:
+                r, g, b = original_data[0], original_data[1], original_data[2]
+                return bytes([r, g, b, 0xFF])
+            else:
+                return bytes([0x00, 0x00, 0x00, 0xFF])
+                
+        elif led_type == 'STANDARD_LED':
+            # STANDARD_LED: 單色 LED,只有 1 byte 亮度值 (0-255) [2]
+            if len(original_data) >= 1:
+                brightness = original_data[0]
+                return bytes([0x00, 0x00, 0x00, brightness])
+            else:
+                return bytes([0x00, 0x00, 0x00, 0x00])
+        else:
+            # 未知類型,返回全 0
+            return bytes([0x00, 0x00, 0x00, 0x00])
+    
+    def calculate_slave_pixel_count(self, slave_id: int) -> int:
+        """
+        計算單個 Slave 的 LED 總數
+        
+        優先使用配置文件 [2],否則根據 v2 header 平均分配
+        """
+        if slave_id in self.slave_configs:
+            config = self.slave_configs[slave_id]
+            total = 0
+            for output in config.get('outputs', []):
+                total += output.get('count', 0)
+            return total
+        else:
+            # 使用 v2 header 的總 LED 數平均分配
+            if self.v2_total_pixels > 0 and self.v2_total_slaves > 0:
+                # 平均分配 (最後一個 slave 可能會有餘數)
+                avg_pixels = self.v2_total_pixels // self.v2_total_slaves
+                remainder = self.v2_total_pixels % self.v2_total_slaves
+                
+                if slave_id < self.v2_total_slaves - 1:
+                    return avg_pixels
+                else:
+                    # 最後一個 slave 包含餘數
+                    return avg_pixels + remainder
+            else:
+                # 回退到預設計算
+                return V2_CHANNELS_PER_SLAVE // 3
+    
+    def convert_slave_data(self, v2_slave_data: bytes, slave_id: int) -> Tuple[bytes, int]:
+        """
+        轉換單個 Slave 的資料從 v2 格式到 v3 格式
+        
+        參數:
+            v2_slave_data: v2 格式的 Slave 數據 (976 bytes)
+            slave_id: Slave ID
+        
+        返回:
+            (v3_data, pixel_count): v3 格式數據和 LED 數量
+        """
+        if len(v2_slave_data) != V2_CHANNELS_PER_SLAVE:
+            raise ValueError(f"Slave {slave_id} 資料長度錯誤: {len(v2_slave_data)} != {V2_CHANNELS_PER_SLAVE}")
+        
+        if slave_id in self.slave_configs:
+            # 使用配置文件處理 [2]
+            config = self.slave_configs[slave_id]
+            v3_data = bytearray()
+            pixel_count = 0
+            
+            for output in config.get('outputs', []):
+                output_type = output.get('type', 'UNKNOWN')
+                count = output.get('count', 0)
+                data_offset = output.get('data_offset', 0)
+                bytes_per_pixel = output.get('bytes_per_pixel', 3)
+                
+                # 計算實際的數據範圍
+                start_offset = data_offset
+                end_offset = start_offset + (count * bytes_per_pixel)
+                
+                # 範圍檢查
+                if end_offset > len(v2_slave_data):
+                    print(f"⚠️  警告: Slave {slave_id} output '{output.get('label')}' 數據超出範圍")
+                    print(f"    data_offset={data_offset}, count={count}, bytes_per_pixel={bytes_per_pixel}")
+                    print(f"    預期: {start_offset}~{end_offset}, 實際可用: 0~{len(v2_slave_data)}")
+                    # 調整到可用範圍
+                    end_offset = min(end_offset, len(v2_slave_data))
+                    actual_count = (end_offset - start_offset) // bytes_per_pixel
+                    print(f"    調整 LED 數量: {count} -> {actual_count}")
+                    count = actual_count
+                
+                # 提取該 output 的原始數據
+                output_data = v2_slave_data[start_offset:end_offset]
+                
+                # 逐個 LED 轉換
+                for i in range(count):
+                    pixel_start = i * bytes_per_pixel
+                    pixel_end = pixel_start + bytes_per_pixel
+                    pixel_data = output_data[pixel_start:pixel_end]
+                    
+                    # 轉換為 v3 格式 (4 bytes RGBW)
+                    v3_pixel = self.convert_led_data(output_type, pixel_data)
+                    v3_data.extend(v3_pixel)
+                    pixel_count += 1
+                    
+            return bytes(v3_data), pixel_count
+        else:
+            # 沒有配置時的預設處理
+            # 根據計算出的 pixel_count 處理
+            pixel_count = self.calculate_slave_pixel_count(slave_id)
+            v3_data = bytearray()
+            
+            # 假設全部是 RGB LED (3 bytes per pixel)
+            for i in range(pixel_count):
+                start_offset = i * 3
+                end_offset = start_offset + 3
+                
+                if end_offset <= len(v2_slave_data):
+                    pixel_data = v2_slave_data[start_offset:end_offset]
+                    v3_pixel = self.convert_led_data('APA102C', pixel_data)
+                else:
+                    # 超出範圍,填充 0
+                    v3_pixel = bytes([0x00, 0x00, 0x00, 0xFF])
+                
+                v3_data.extend(v3_pixel)
+            
+            return bytes(v3_data), pixel_count
+    
+    def convert_file(self, input_path: str, output_path: str, total_frames: Optional[int] = None) -> Dict:
+        """轉換完整的 PXLD 檔案從 v2 到 v3"""
+        print(f"🔧 開始轉換: {input_path}")
+        print(f"          -> {output_path}")
+        print(f"📐 轉換規則: 每個 LED 固定 {V3_BYTES_PER_LED} 字節 (RGBW 順序)")
+        
+        try:
+            input_size = os.path.getsize(input_path)
+            self.stats['input_size'] = input_size
+            
+            with open(input_path, 'rb') as f_in:
+                # 讀取 v2 標頭
+                v2_header_data = f_in.read(V2_HEADER_SIZE)
+                v2_header = V2Header.from_bytes(v2_header_data)
+                
+                # 保存用於計算
+                self.v2_total_pixels = v2_header.total_pixels
+                self.v2_total_slaves = v2_header.total_slaves
+                
+                print(f"\n📄 輸入檔案資訊 (v2):")
+                print(f"   版本: {v2_header.major_version}.{v2_header.minor_version}")
+                print(f"   FPS: {v2_header.fps}")
+                print(f"   Slave 數量: {v2_header.total_slaves}")
+                print(f"   總通道數: {v2_header.total_channels}")
+                print(f"   總 LED 數: {v2_header.total_pixels}")
+                
+                data_start = V2_HEADER_SIZE
+                file_data_size = input_size - data_start
+                
+                # 計算總影格數
+                if total_frames is None:
+                    total_frames = file_data_size // V2_FRAME_SIZE
+                    if file_data_size % V2_FRAME_SIZE != 0:
+                        print(f"⚠️  檔案大小不是 V2_FRAME_SIZE 的倍數")
+                        remaining = file_data_size % V2_FRAME_SIZE
+                        print(f"    剩餘 {remaining} bytes 將被忽略")
+                
+                print(f"   總影格數: {total_frames}")
+                
+                # ===== 計算每個 Slave 的 LED 數量 =====
+                slave_pixel_counts = []
+                total_pixels_v3 = 0
+                
+                print(f"\n📊 Slave LED 數量統計:")
+                for slave_id in range(v2_header.total_slaves):
+                    pixel_count = self.calculate_slave_pixel_count(slave_id)
+                    slave_pixel_counts.append(pixel_count)
+                    total_pixels_v3 += pixel_count
+                    
+                    # 顯示詳細資訊
+                    if slave_id < 3 or slave_id >= v2_header.total_slaves - 3 or slave_id in self.slave_configs:
+                        config_status = "✅ 已配置" if slave_id in self.slave_configs else "⚠️  預設計算"
+                        print(f"   Slave {slave_id:2d}: {pixel_count:4d} LEDs  {config_status}")
+                    elif slave_id == 3:
+                        print(f"   ...")
+                
+                print(f"\n📐 計算結果:")
+                print(f"   有配置的 Slave 數: {len(self.slave_configs)}")
+                print(f"   v2 總 LED 數: {v2_header.total_pixels}")
+                print(f"   v3 總 LED 數: {total_pixels_v3}")
+                
+                if total_pixels_v3 == v2_header.total_pixels:
+                    print(f"   ✅ LED 數量一致!")
+                else:
+                    print(f"   ⚠️  LED 數量不一致! 差異: {total_pixels_v3 - v2_header.total_pixels}")
+                
+                self.stats['total_pixels_v2'] = v2_header.total_pixels
+                self.stats['total_pixels_v3'] = total_pixels_v3
+                total_channels_v3 = total_pixels_v3 * V3_BYTES_PER_LED
+                
+                print(f"   v3 總通道數: {total_channels_v3} (每個 LED {V3_BYTES_PER_LED} 字節)")
+                
+                # ===== 第一步: 寫入所有資料 (CRC32 暫時為 0) =====
+                print(f"\n🔄 開始轉換影格資料...")
+                with open(output_path, 'wb') as f_out:
+                    # 寫入 v3 標頭 (CRC32 暫時為 0) [1]
+                    header = bytearray(V3_HEADER_SIZE)
+                    header[0:4] = V3_MAGIC                                          # offset 0-3: magic
+                    header[4] = V3_MAJOR_VERSION                                    # offset 4: major_version
+                    header[5] = V3_MINOR_VERSION                                    # offset 5: minor_version
+                    header[6] = v2_header.fps                                       # offset 6: fps
+                    struct.pack_into('<H', header, 7, v2_header.total_slaves)       # offset 7-8: total_slaves
+                    struct.pack_into('<I', header, 9, total_frames)                 # offset 9-12: total_frames
+                    struct.pack_into('<I', header, 13, total_pixels_v3)             # offset 13-16: total_pixels
+                    struct.pack_into('<H', header, 17, V3_FRAME_HEADER_SIZE)        # offset 17-18: frame_header_size
+                    struct.pack_into('<H', header, 19, V3_SLAVE_ENTRY_SIZE)         # offset 19-20: slave_entry_size
+                    struct.pack_into('<H', header, 21, V3_UDP_PORT)                 # offset 21-22: udp_port
+                    struct.pack_into('<I', header, 23, 0)                           # offset 23-26: crc32 (暫時為0)
+                    header[27] = V3_CHECKSUM_TYPE                                   # offset 27: checksum_type
+                    header[28:64] = bytes(36)                                       # offset 28-63: reserved
+                    f_out.write(header)
+                    
+                    # 建立 SlaveEntry 列表
+                    slave_entries = []
+                    current_data_offset = 0
+                    channel_start = 1  # 通道從 1 開始編號
+                    
+                    for slave_id in range(v2_header.total_slaves):
+                        pixel_count = slave_pixel_counts[slave_id]
+                        data_length = pixel_count * V3_BYTES_PER_LED
+                        channel_count = pixel_count * V3_BYTES_PER_LED
+                        
+                        slave_entry = bytearray(V3_SLAVE_ENTRY_SIZE)
+                        slave_entry[0] = slave_id                                   # offset 0: slave_id
+                        slave_entry[1] = 0                                          # offset 1: reserved
+                        struct.pack_into('<H', slave_entry, 2, channel_start)       # offset 2-3: channel_start
+                        struct.pack_into('<H', slave_entry, 4, channel_count)       # offset 4-5: channel_count
+                        struct.pack_into('<H', slave_entry, 6, pixel_count)         # offset 6-7: pixel_count
+                        struct.pack_into('<I', slave_entry, 8, current_data_offset) # offset 8-11: data_offset
+                        struct.pack_into('<I', slave_entry, 12, data_length)        # offset 12-15: data_length
+                        slave_entry[16:24] = bytes(8)                               # offset 16-23: reserved
+                        slave_entries.append(slave_entry)
+                        
+                        current_data_offset += data_length
+                        channel_start += channel_count
+                    
+                    # 轉換並寫入每個影格
+                    for frame_id in range(total_frames):
+                        try:
+                            # 讀取 v2 影格
+                            v2_frame_data = f_in.read(V2_FRAME_SIZE)
+                            if len(v2_frame_data) < V2_FRAME_SIZE:
+                                print(f"⚠️  影格 {frame_id} 資料不完整 ({len(v2_frame_data)} bytes),停止處理")
+                                break
+                            
+                            # 提取像素資料 (跳過 FrameHeader 和 SlaveHeader)
+                            v2_pixel_data = v2_frame_data[V2_FRAME_HEADER_SIZE + V2_SLAVE_HEADER_SIZE:]
+                            if len(v2_pixel_data) != V2_PIXEL_DATA_SIZE:
+                                raise ValueError(f"影格 {frame_id}: v2 像素資料長度錯誤")
+                            
+                            # 建立 v3 PixelData
+                            v3_pixel_data = bytearray()
+                            for slave_id in range(v2_header.total_slaves):
+                                slave_start = slave_id * V2_CHANNELS_PER_SLAVE
+                                slave_end = slave_start + V2_CHANNELS_PER_SLAVE
+                                v2_slave_data = v2_pixel_data[slave_start:slave_end]
+                                v3_slave_data, _ = self.convert_slave_data(v2_slave_data, slave_id)
+                                v3_pixel_data.extend(v3_slave_data)
+                            
+                            # 寫入 v3 FrameHeader [1]
+                            frame_header = bytearray(V3_FRAME_HEADER_SIZE)
+                            struct.pack_into('<I', frame_header, 0, frame_id)                           # offset 0-3: frame_id
+                            struct.pack_into('<H', frame_header, 4, 0)                                  # offset 4-5: reserved
+                            struct.pack_into('<H', frame_header, 6, 0)                                  # offset 6-7: reserved
+                            struct.pack_into('<I', frame_header, 8, len(slave_entries) * V3_SLAVE_ENTRY_SIZE)  # offset 8-11: slave_table_size
+                            struct.pack_into('<I', frame_header, 12, len(v3_pixel_data))                # offset 12-15: pixel_data_size
+                            frame_header[16:32] = bytes(16)                                             # offset 16-31: reserved
+                            f_out.write(frame_header)
+                            
+                            # 寫入 SlaveTable
+                            for entry in slave_entries:
+                                f_out.write(entry)
+                            
+                            # 寫入 PixelData
+                            f_out.write(v3_pixel_data)
+                            
+                            self.stats['frames_converted'] += 1
+                            
+                            # 進度顯示
+                            if (frame_id + 1) % 100 == 0 or (frame_id + 1) == total_frames:
+                                progress = (frame_id + 1) / total_frames * 100
+                                print(f"  轉換進度: {frame_id + 1}/{total_frames} 影格 ({progress:.1f}%)")
+                                
+                        except Exception as e:
+                            error_msg = f"影格 {frame_id} 轉換失敗: {e}"
+                            self.stats['errors'].append(error_msg)
+                            print(f"❌ {error_msg}")
+                            break
+                
+                print(f"\n🔐 計算 CRC32 校驗碼...")
+                
+                # ===== 第二步: 計算 CRC32 [1] =====
+                with open(output_path, 'rb') as f_crc:
+                    f_crc.seek(27)  # 從 offset 27 開始計算
+                    file_data_for_crc = f_crc.read()
+                    crc32_value = binascii.crc32(file_data_for_crc) & 0xFFFFFFFF
+                    print(f"   CRC32: 0x{crc32_value:08X}")
+                
+                # ===== 第三步: 更新標頭中的 CRC32 =====
+                with open(output_path, 'r+b') as f_update:
+                    f_update.seek(23)
+                    f_update.write(struct.pack('<I', crc32_value))
+                
+                print(f"✅ CRC32 校驗碼已寫入檔案標頭")
+                
+                self.stats['output_size'] = os.path.getsize(output_path)
+                    
+        except Exception as e:
+            error_msg = f"轉換過程發生錯誤: {e}"
+            self.stats['errors'].append(error_msg)
+            print(f"❌ {error_msg}")
+            import traceback
+            traceback.print_exc()
+            raise
+        
+        return self.stats
+
+# ==================== 主程式 ====================
+def main():
+    """主程式入口"""
+    
+    # ===== 在這裡設定路徑 =====
+    input_file = r'/Users/tungkinlee/Downloads/demo_packet_slave0.pxld'
+    output_file = r'/Users/tungkinlee/Downloads/demo_packet_slave0_v3.pxld'
+    config_file = r'/Users/tungkinlee/Downloads/config.json'
+    
+    # 可選參數
+    total_frames = None  # 自動偵測,或指定數量如: 12000
+    
+    # ===== 執行轉換 =====
+    try:
+        print("="*60)
+        print("PXLD v2 到 v3 格式轉換器")
+        print("="*60)
+        
+        converter = PXLDv2ToV3Converter(config_file)
+        stats = converter.convert_file(input_file, output_file, total_frames)
+        
+        print(f"\n" + "="*60)
+        print(f"✅ 轉換完成!")
+        print(f"="*60)
+        print(f"📊 轉換統計:")
+        print(f"   輸入檔案: {stats['input_size']:,} bytes")
+        print(f"   輸出檔案: {stats['output_size']:,} bytes")
+        print(f"   大小比例: {stats['output_size']/stats['input_size']*100:.1f}%")
+        print(f"   轉換影格: {stats['frames_converted']}")
+        print(f"   v2 LED 數: {stats['total_pixels_v2']}")
+        print(f"   v3 LED 數: {stats['total_pixels_v3']}")
+        
+        if stats['errors']:
+            print(f"\n⚠️  發生 {len(stats['errors'])} 個錯誤:")
+            for error in stats['errors'][:5]:  # 只顯示前 5 個
+                print(f"   - {error}")
+            if len(stats['errors']) > 5:
+                print(f"   ... 還有 {len(stats['errors'])-5} 個錯誤")
+        
+        return 0
+        
+    except Exception as e:
+        print(f"\n❌ 轉換失敗: {e}")
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
