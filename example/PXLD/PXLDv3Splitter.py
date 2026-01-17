@@ -766,7 +766,7 @@ if __name__ == "__main__":
         print("或直接運行以下範例代碼:")
         
         # 示例代碼
-        filepath = r"C:\Users\bl91920\Documents\code\git\micropython_some_drive\example\PXLD\show_50.pxld"
+        filepath = r"/Users/tungkinlee/Documents/Git/Sourcetree/micropython_some_drive/example/PXLD/show.pxld"
         
         try:
             with PXLDv3Decoder(filepath) as decoder:
@@ -801,7 +801,7 @@ if __name__ == "__main__":
                 
                     # 分離單個Slave（幀範圍: 0-50）
                     print(f"\n🎯 分離幀 0-50:")
-                    output_path = splitter.split_single_slave(i, start_frame=0, end_frame=int(10707/3))
+                    output_path = splitter.split_single_slave(i, start_frame=0, end_frame=int(10707/10))
                     print(f"輸出文件: {output_path}")
                 
                 # # 分離單個Slave（幀範圍: 100-150）
