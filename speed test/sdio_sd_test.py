@@ -1,15 +1,19 @@
 from machine import Pin, SDCard
 import os, time, urandom
+from esp32 import LDO
 
+l = LDO(4, 3300, adjustable=True)
 # ===== 1. 掛載 SD（你的腳位） =====
 sd = SDCard(slot=0, width=4,
             sck=43, cmd=44,
             data=(39, 40, 41, 42),
             freq=40_000_000)
 os.mount(sd, '/sd')
+root_phat = '/sd'
+root_phat = ''
 
 # ===== 2. 測試參數 =====
-TEST_FILE = '/sd/bench.dat'
+TEST_FILE = f'{root_phat}/bench.dat'
 FILE_MB   = 10               # 檔案大小 (MB)
 BUF_KB    = 64               # 一次讀寫的 buffer (KB)
 LOOP      = (FILE_MB * 1024) // BUF_KB
@@ -48,7 +52,7 @@ os.remove(TEST_FILE)
 
 
 
-TEST_DIR = '/sd/small_test'
+TEST_DIR = f'{root_phat}/small_test'
 try:
     os.mkdir(TEST_DIR)          # 只建一層，MicroPython 夠用
 except OSError:                 # 已存在會拋 OSError: EEXIST
@@ -83,3 +87,4 @@ print("Small-file read : %.1f KB/s" % (total_kb * 1000 / t_r))
 for n in range(FILE_CNT):
     os.remove(TEST_DIR + '/%04d.log' % n)
 os.rmdir(TEST_DIR)
+
