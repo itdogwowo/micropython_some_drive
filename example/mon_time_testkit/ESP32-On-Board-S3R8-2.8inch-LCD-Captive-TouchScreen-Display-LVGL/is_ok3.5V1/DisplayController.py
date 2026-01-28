@@ -169,6 +169,8 @@ class DisplayController:
         with open(f'{root_path}/config.json', 'r') as openfile:
         # Reading from json file
             self.config = json.load(openfile)
+            
+        self.CPU_steps = True
 
         
         # 硬體物件初始化
@@ -203,11 +205,9 @@ class DisplayController:
         if touch is not None:
             self.touch_controller = TouchController(touch, touch_width=240, touch_height=320, rotation=3, callback=self._on_input_event)
             # 觸摸按鈕配置
-            self.touch_controller.add_button(0, 0, 120, 48, callback=None, name="0")
-            self.touch_controller.add_button(0, 48, 120, 48, callback=None, name="1")
-            self.touch_controller.add_button(0, 96, 120, 48, callback=None, name="2")
-            self.touch_controller.add_button(0, 144, 120, 48, callback=None, name="3")
-            self.touch_controller.add_button(0, 192, 120, 48, callback=None, name="4")
+            self.touch_controller.add_button(0, 0, 120, 48*2, callback=None, name="-1")
+            self.touch_controller.add_button(0, 144, 120, 48*2, callback=None, name="1")
+
         else:
             self.touch_controller = None
             
@@ -272,7 +272,7 @@ class DisplayController:
             self._initialize_display(patter)
             # 確保狀態值在新範圍內有效
             self._set_state(mode=self.mode_count, brightness=self.brightness_value, source='local')
-            print("Reinitialization completed successfully")
+#             print("Reinitialization completed successfully")
         except Exception as e:
             print(f"Error during reinitialization: {e}")
 
@@ -297,26 +297,29 @@ class DisplayController:
                 new_mode = self.mode_count + 1
             else:  # touche
                 # 觸摸事件：直接切換到指定模式
-                new_mode = event_value
+                new_mode = self.mode_count + event_value
+#                 new_mode = event_value
             
             self._set_state(mode=new_mode, source='local')
-            print(f'{event_type} event - mode: {new_mode}')
+#             print(f'{event_type} event - mode: {new_mode}')
             
         elif event_type == 'brightness':
             # 處理亮度調整
             current_brightness = self.brightness_value
             new_brightness = current_brightness + event_value
             self._set_state(brightness=new_brightness, source='local')
-            print(f'brightness event - value: {event_value}')
+#             print(f'brightness event - value: {event_value}')
             
         elif event_type == 'double_click':
             # 雙擊事件處理
-            print("Double click detected")
+            pass
+#             print("Double click detected")
             # 可添加其他功能，如重置設定
             
         elif event_type == 'long_press':
             # 長按事件處理
-            print("Long press detected")
+            pass
+#             print("Long press detected")
             # 可添加其他功能，如進入設定模式
         elif event_type == 'change_pattern':
             
@@ -328,12 +331,12 @@ class DisplayController:
             self.lcd.write_data(self._temp_buff)
                         
             self._reinitialize(result)
-            print("change_pattern event")
+#             print("change_pattern event")
             # 可添加 Wi-Fi 相關功能
             
         elif event_type == 'wifi':
             self._set_state(mode=0x47, source='local')
-            print("wifi event")
+#             print("wifi event")
             # 可添加 Wi-Fi 相關功能
 
     def _set_state(self, mode=None, brightness=None, time=None, source='local'):
@@ -346,15 +349,6 @@ class DisplayController:
         
         # 處理模式改變
         if mode is not None:
-            if mode ==0x47 and self.uart:
-
-                try:
-                    _data = bytearray([0xB4, mode, self.brightness_value, self.last_time, 0xFF])
-                    self.uart.write(_data)
-                except Exception as e:
-                    print(f"UART send error: {e}")
-                    
-                
             new_mode = mode % max_mode  # 使用緩存的 max_mode
             if new_mode != old_mode:
                 self.mode_count = new_mode
@@ -412,11 +406,12 @@ class DisplayController:
         if 0 <= mode <= 10:  # 常規模式範圍
             self._set_state(mode=mode, source='uart')
         elif mode == 0x77:   # 程式錯誤模式
-            print("Program error mode activated")
+            pass
+#             print("Program error mode activated")
             # 可設置錯誤狀態
         elif mode == 0x47:   # Wi-Fi 模式
-#             self._set_state(mode=mode, source='uart')
-            print("Wi-Fi mode activated")
+            pass
+#             print("Wi-Fi mode activated")
             # 可設置 Wi-Fi 狀態
         
         # 更新亮度和時間
@@ -465,18 +460,20 @@ class DisplayController:
 
     def _update_loop_animation(self, time_buf):
         """更新循環動畫"""
-        loop_buf = self.buffer_mgr.get_next_frame('loop')
-        if loop_buf:
-            if time_buf:
-                text_x, text_y = self.text_info['x'], self.text_info['y']
-                loop_buf.blit(time_buf, text_x, text_y, 0)
-            x, y = self.loop_info['x'], self.loop_info['y']
-            if self.reverse:
-                w, h = self.loop_info['height'], self.loop_info['width']
-            else:
-                w, h = self.loop_info['width'], self.loop_info['height']
-            self.lcd.set_window(x, y, x + w - 1, y + h - 1)
-            self.lcd.write_data(loop_buf)
+        if self.CPU_steps:
+            self.loop_fb = self.buffer_mgr.get_next_frame('loop')
+        else:
+            if self.loop_fb:
+                if time_buf:
+                    text_x, text_y = self.text_info['x'], self.text_info['y']
+                    self.loop_fb.blit(time_buf, text_x, text_y, 0)
+                x, y = self.loop_info['x'], self.loop_info['y']
+                if self.reverse:
+                    w, h = self.loop_info['height'], self.loop_info['width']
+                else:
+                    w, h = self.loop_info['width'], self.loop_info['height']
+                self.lcd.set_window(x, y, x + w - 1, y + h - 1)
+                self.lcd.write_data(self.loop_fb)
 
     def _send_uart_update(self):
         """發送 UART 更新信號"""
@@ -492,7 +489,7 @@ class DisplayController:
         if self.uart and self.uart.any():
             try:
                 data = self.uart.read()
-                print(data)
+#                 print(data)
                 start_idx = -1
                 for i in range(len(data)):
                     if data[i] == 0xB4 and i + 4 < len(data) and data[i+4] == 0xFF:
@@ -535,7 +532,12 @@ class DisplayController:
         if self.last_brightness_value != self.brightness_value:
             self.last_brightness_value = self.brightness_value
             self._update_brightness_display()
-        
+            
+        if self.CPU_steps:
+            self.CPU_steps = not self.CPU_steps
+        else:
+            self.CPU_steps = not self.CPU_steps
+            
         if debug:
             run_time = time.ticks_diff(time.ticks_ms(), start_time)
             print('run_time:', run_time)

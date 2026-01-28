@@ -126,7 +126,7 @@ class TouchController:
                 if display_x != self.last_X and finger_number == 2 :
                     self.offset_X =  display_x -self.last_X 
                     if self.callback:
-                        self.callback('brightness', self.offset_X // 10)
+                        self.callback('brightness', self.offset_X // 15)
                     self.last_X = display_x
                     
                 if display_y != self.last_Y:

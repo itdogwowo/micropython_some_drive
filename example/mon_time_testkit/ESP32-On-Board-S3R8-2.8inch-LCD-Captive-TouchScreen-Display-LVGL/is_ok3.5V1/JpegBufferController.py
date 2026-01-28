@@ -152,7 +152,7 @@ class ResourceBuffer:
             timeout += 1
         
         if self.decode_thread_running:
-            print(f"[WARN] Previous decode still running for {self.name}")
+#             print(f"[WARN] Previous decode still running for {self.name}")
             return False
         
         # 重置狀態
@@ -223,7 +223,7 @@ class ResourceBuffer:
     def jump_to_frame(self, frame_index):
         """跳轉到指定幀"""
         if not (0 <= frame_index <= self.depth):
-            print(f"[WARN] Invalid frame {frame_index}, range: 0-{self.depth}")
+#             print(f"[WARN] Invalid frame {frame_index}, range: 0-{self.depth}")
             return self.front_fb
         
         # 等待當前解碼完成
@@ -257,7 +257,7 @@ class ResourceBuffer:
             return None
         
         if not (0 <= digit <= self.depth):
-            print(f"[WARN] Invalid digit {digit}")
+#             print(f"[WARN] Invalid digit {digit}")
             return None
         
         # 等待解碼線程完成
@@ -340,7 +340,7 @@ class JpegBufferController:
         try:
             with open(config_path, 'r') as f:
                 self.config = json.load(f)
-            print(f"✓ Config loaded from {config_path}")
+#             print(f"✓ Config loaded from {config_path}")
         except Exception as e:
             print(f"✗ Failed to load config: {e}")
             raise
@@ -359,7 +359,7 @@ class JpegBufferController:
                     decoder=self.decoder,
                     strict_mode=self.strict_mode
                 )
-            print(f"✓ Initialized resource: {name} ({i['depth']} frames)")
+#             print(f"✓ Initialized resource: {name} ({i['depth']} frames)")
             
             if name == 'text':
                 self._init_text(i)
@@ -406,9 +406,10 @@ class JpegBufferController:
                 }
                 
                 digit_text = digit if digit < 10 else ':'
-                print(f"  ✓ Cached digit: {digit_text}")
+#                 print(f"  ✓ Cached digit: {digit_text}")
             else:
-                print(f"  ✗ Failed to cache digit: {digit}")
+                pass
+#                 print(f"  ✗ Failed to cache digit: {digit}")
         
         # === 創建5個位置的顯示緩衝區 ===
         self._time_buffer = {}
@@ -437,8 +438,8 @@ class JpegBufferController:
             framebuf.RGB565
         )
         
-        print(f"✓ Time display initialized: {text_cfg['width']*5}x{text_cfg['height']}")
-        print(f"✓ Digit cache: {len(self._digit_cache)} images loaded")
+#         print(f"✓ Time display initialized: {text_cfg['width']*5}x{text_cfg['height']}")
+#         print(f"✓ Digit cache: {len(self._digit_cache)} images loaded")
                 
 
     
@@ -487,7 +488,7 @@ class JpegBufferController:
         
         # 重新初始化資源
         self._init_resources()
-        print("✓ Reinitialization completed successfully")
+#         print("✓ Reinitialization completed successfully")
     
     def get_background(self):
         """獲取背景圖像緩衝"""
@@ -564,7 +565,8 @@ class JpegBufferController:
                     cache['buff'].blit(cached_digit['buff'], 0, 0)
                     cache['status'] = digit_value
                 else:
-                    print(f"[WARN] Digit {digit_value} not in cache!")
+                    pass
+#                     print(f"[WARN] Digit {digit_value} not in cache!")
             
             # 繪製到時間緩衝區
             self.time_buffer.blit(cache['buff'], i * digit_width, 0)
@@ -592,13 +594,13 @@ class JpegBufferController:
         """重置資源到第一幀"""
         if resource_name in self.resources:
             self.resources[resource_name].reset()
-            print(f"✓ Reset resource: {resource_name}")
+#             print(f"✓ Reset resource: {resource_name}")
     
     def cleanup(self):
         """清理所有資源"""
         for name, resource in self.resources.items():
             resource.cleanup()
-            print(f"✓ Cleaned up: {name}")
+#             print(f"✓ Cleaned up: {name}")
         
         self.resources = {}
-        print("✓ All resources cleaned up")
+#         print("✓ All resources cleaned up")

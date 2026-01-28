@@ -6,7 +6,6 @@ import json
 import framebuf
 import jpeg
 import os
-from machine import WDT
 
 from JpegBufferController import *
 from TFTController import *
@@ -49,20 +48,32 @@ def main():
     _touch = CST328(i2c,int_pin=4, rst_pin=2)
     
 #     # UART初始化
-#     uart = UART(1, baudrate=115200, tx=Pin(15), rx=Pin(18))
+#     uart = UART(1, baudrate=115200, tx=Pin(21), rx=Pin(20))
     
     # SD卡和文件系統
     sd = SDCard(slot=2, width=1, sck=14, miso=16, mosi=17,cs=21)
     os.mount(sd, "/sd")
-
+    
+    with open('/sd/config.json', 'r') as openfile:
+    # Reading from json file
+        sd_config = json.load(openfile)
+        
+    _root_path = sd_config['root_path']%sd_config['patter']
+    root_path = f'/sd/{_root_path}/'
+    
     # 顯示背景
     decoder = jpeg.Decoder(rotation=0, pixel_format="RGB565_BE")
-
-    _temp_buff = bytearray(320 * 240 * 2)
+    jpeg_data = open(root_path+"background/000.jpeg", "rb").read()
+    decoded_image = decoder.decode(jpeg_data)
     lcd.set_window(0, 0)
-    lcd.write_data(_temp_buff)
-#     wdt = WDT(timeout=1000*60*2)
-
+    lcd.write_data(decoded_image)
+    
+    # 創建緩衝管理器和計時器 
+    buffer_mgr = JpegBufferController(root_path)
+    timer = CountdownTimer()
+    timer.set_time(0)  # 10秒倒計時
+    
+    
     
     # 創建主控制器
     controller = DisplayController(root_path = '/sd', lcd = lcd , uart = uart ,
@@ -70,13 +81,14 @@ def main():
                                    touch = _touch,
                                    reverse = True)
     
-#     controller.timer.set_time(0)# 10秒倒計時
-    controller._set_state(mode=4, brightness=18,source='local')
+    controller._set_state(brightness=18, source='local')
     
-#     controller._reinitialize(1)
+#     controller._set_state(mode = 0)
+#     controller._set_state(brightness = 0)
+#     controller._set_state(time = 10)
 
-    
-    
+
+#     controller._update_brightness_display()
     try:
         while True:
             st = time.ticks_ms()
@@ -86,7 +98,6 @@ def main():
 #             print('run_time : ',run_time)
             if run_time <= 20 :
                 time.sleep_ms(20-run_time)
-#             wdt.feed()
                 
     except KeyboardInterrupt:
         timer.stop()

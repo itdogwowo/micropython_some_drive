@@ -13,7 +13,7 @@
     "UART_IO":{
         "enable": 1 ,
         "baudrate": 115200 ,
-        "GPIO":{"tx":11,"rx":10}
+        "GPIO":{"tx":10,"rx":11}
     },
     "i2c_IO":{
         "enable": 0 ,
