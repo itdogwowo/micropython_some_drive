@@ -801,7 +801,7 @@ if __name__ == "__main__":
                 
                     # 分離單個Slave（幀範圍: 0-50）
                     print(f"\n🎯 分離幀 0-50:")
-                    output_path = splitter.split_single_slave(i, start_frame=0, end_frame=int(10707/10))
+                    output_path = splitter.split_single_slave(i, start_frame=0, end_frame=int(10707/2))
                     print(f"輸出文件: {output_path}")
                 
                 # # 分離單個Slave（幀範圍: 100-150）
