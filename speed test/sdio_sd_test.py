@@ -1,16 +1,25 @@
 from machine import Pin, SDCard
 import os, time, urandom
-from esp32 import LDO
+# from esp32 import LDO
 
-l = LDO(4, 3300, adjustable=True)
-# ===== 1. 掛載 SD（你的腳位） =====
+
+# 
+# l = LDO(4, 3300, adjustable=True)
+# # ===== 1. 掛載 SD（你的腳位） =====
+# sd = SDCard(slot=0, width=4,
+#             sck=43, cmd=44,
+#             data=(39, 40, 41, 42),
+#             freq=40_000_000)
+
+
 sd = SDCard(slot=0, width=4,
-            sck=43, cmd=44,
-            data=(39, 40, 41, 42),
+            sck=7, cmd=6,
+            data=(5, 4, 16, 15),
             freq=40_000_000)
+
 os.mount(sd, '/sd')
 root_phat = '/sd'
-root_phat = ''
+# root_phat = ''
 
 # ===== 2. 測試參數 =====
 TEST_FILE = f'{root_phat}/bench.dat'
