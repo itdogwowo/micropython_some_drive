@@ -8,7 +8,7 @@ import time
 class ResourceBuffer:
     """雙重緩衝資源管理器 - 性能優化版"""
     
-    def __init__(self, name, root_path, config, decoder, strict_mode=False):
+    def __init__(self, name, root_path, config, decoder, jpeg_cfg=None, strict_mode=False):
         """
         初始化資源緩衝
         Args:
@@ -22,6 +22,7 @@ class ResourceBuffer:
         self.root_path = root_path
         self.config = config
         self.decoder = decoder
+        self.jpeg_cfg = jpeg_cfg or {}
         self.strict_mode = strict_mode
         
         # 提取配置
@@ -33,7 +34,8 @@ class ResourceBuffer:
         
         # 預計算固定值
         self.buffer_size = self.width * self.height * 2  # RGB565
-        self.jpeg_max_size = self.width * self.height * 4
+        max_jpeg_bytes = int(self.jpeg_cfg.get("max_jpeg_bytes", 0) or 0)
+        self.jpeg_max_size = max_jpeg_bytes if max_jpeg_bytes > 0 else (self.width * self.height * 4)
         
         # 當前幀索引
         self.current_frame = 0
@@ -93,14 +95,21 @@ class ResourceBuffer:
             
             # 讀取JPEG數據
             with open(file_path, "rb") as f:
-                f.readinto(self.jpeg_mv)
+                n = f.readinto(self.jpeg_mv)
+            if not n:
+                raise OSError("Empty JPEG file")
             
             # 解碼
-            decoded_data = self.decoder.decode(self.jpeg_buffer)
-            
-            # 使用預創建的memoryview快速拷貝
-            decoded_mv = memoryview(decoded_data)
-            target_mv[:self.buffer_size] = decoded_mv[:self.buffer_size]
+            jpeg_view = self.jpeg_mv[:n]
+            block = bool(self.jpeg_cfg.get("block", False))
+            step_blocks = int(self.jpeg_cfg.get("step_blocks", 0) or 0)
+            if block and step_blocks > 0:
+                done = False
+                out_view = target_mv[:self.buffer_size]
+                while not done:
+                    done = self.decoder.decode_into(jpeg_view, out_view, blocks=step_blocks)
+            else:
+                self.decoder.decode_into(jpeg_view, target_mv[:self.buffer_size])
             
             return True
             
@@ -322,12 +331,23 @@ class JpegBufferController:
         self.strict_mode = strict_mode
         self.config = {}
         self.resources = {}
-        
-        # 創建共享的JPEG解碼器
-        self.decoder = jpeg.Decoder(rotation=0, pixel_format="RGB565_BE")
-        
+
         # 讀取配置文件
         self._load_config(config_file)
+
+        jpeg_cfg = self.config.get("jpeg", {}) or {}
+        pixel_format = jpeg_cfg.get("pixel_format", "RGB565_BE")
+        rotation = int(jpeg_cfg.get("rotation", 0))
+        block = bool(jpeg_cfg.get("block", False))
+        return_bytes = bool(jpeg_cfg.get("return_bytes", False))
+
+        self.jpeg_cfg = jpeg_cfg
+        self.decoder = jpeg.Decoder(
+            pixel_format=pixel_format,
+            rotation=rotation,
+            block=block,
+            return_bytes=return_bytes,
+        )
         
         # 初始化所有資源
         self._init_resources()
@@ -355,6 +375,7 @@ class JpegBufferController:
                     root_path=self.root_path,
                     config=i,
                     decoder=self.decoder,
+                    jpeg_cfg=self.jpeg_cfg,
                     strict_mode=self.strict_mode
                 )
             print(f"✓ Initialized resource: {name} ({i['depth']} frames)")
