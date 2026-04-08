@@ -30,7 +30,7 @@
   },
   "display_Layout": [
     {
-      "type": "background",
+      "type": "loop",
       "height": 240,
       "width": 240,
       "x": 0,

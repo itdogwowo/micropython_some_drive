@@ -45,30 +45,30 @@ def main():
         
     
     # LCD和SD卡初始化
-    tft_spi = machine.SPI(1, baudrate=80_000_000, sck=Pin(1), mosi=Pin(2))
-    lcd = GC9D01(
+    tft_spi = machine.SPI(1, baudrate=80_000_000, sck=Pin(12), mosi=Pin(11))
+    lcd = GC9A01(
         spi=tft_spi,
-        dc=Pin(4, Pin.OUT),
-        cs=Pin(5, Pin.OUT),
-        rst=Pin(7, Pin.OUT),
-        width= 160,
-        height=160,
+        dc=Pin(13, Pin.OUT),
+        cs=Pin(10, Pin.OUT),
+        rst=Pin(14, Pin.OUT),
+        width= 240,
+        height=240,
         invert=True
     )
 #     lcd.set_rotation(90)
 #     lcd._update_inversion()
     
-    lcd.toggle_inversion()
+#     lcd.toggle_inversion()
 #     all_led_list[0][0].duty(4095)
     
     # 編碼器和按鈕初始化    
-    with open('/sd1/config.json', 'r') as openfile:
-    # Reading from json file
-        sd_config = json.load(openfile)
-        
-    _root_path = sd_config['root_path']%sd_config['patter']
-    root_path = f'/sd1/{_root_path}/'
-
+#     with open('/sd1/config.json', 'r') as openfile:
+#     # Reading from json file
+#         sd_config = json.load(openfile)
+#         
+#     _root_path = sd_config['root_path']%sd_config['patter']
+#     root_path = f'/sd1/{_root_path}/'
+    root_path = f'/jpeg/'
     lcd.set_window(0, 0)
 #     buf = bytearray(160 * 160 * 2)
 
@@ -97,7 +97,7 @@ def main():
             frame_state = not frame_state
                 
             run_time = time.ticks_diff( time.ticks_ms(),st)
-#             print('run_time : ',run_time)
+            print('run_time : ',run_time)
             if run_time <= 20 :
                 time.sleep_ms(20-run_time)
                 
