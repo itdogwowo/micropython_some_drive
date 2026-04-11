@@ -33,7 +33,6 @@ def build_bus():
     pace_ms = int(player_cfg.get("pace_ms", 0) or 0)
     loop_play = bool(player_cfg.get("loop", True))
     pipeline_cfg = player_cfg.get("pipeline", {}) or {}
-    pipeline_enabled = bool(pipeline_cfg.get("enabled", True))
     pipeline_io_buffers = pipeline_cfg.get("io_buffers", None)
     pipeline_frame_buffers = pipeline_cfg.get("frame_buffers", None)
     io_buffers = None if pipeline_io_buffers is None else int(pipeline_io_buffers)
@@ -107,7 +106,6 @@ def build_bus():
     bus.shared["jpeg_step_blocks"] = step_blocks
     bus.shared["pace_ms"] = pace_ms
     bus.shared["loop_play"] = loop_play
-    bus.shared["pipeline_enabled"] = pipeline_enabled
     bus.shared["pipeline_io_buffers"] = io_buffers
     bus.shared["pipeline_frame_buffers"] = frame_buffers
     bus.shared["stats_enabled"] = stats_enabled
@@ -120,19 +118,18 @@ def build_bus():
     bus.set_service("decoder", decoder)
     bus.set_service("paths", paths)
 
-    if pipeline_enabled:
-        frame_tail = 16
-        io_tail = 16
-        bus.shared["frame_tail"] = frame_tail
-        bus.shared["io_tail"] = io_tail
+    frame_tail = 16
+    io_tail = 16
+    bus.shared["frame_tail"] = frame_tail
+    bus.shared["io_tail"] = io_tail
 
-        frame_hub_buffers = 3 if frame_buffers is None else frame_buffers
-        io_hub_buffers = (2 if frame_hub_buffers > 2 else frame_hub_buffers) if io_buffers is None else io_buffers
+    frame_hub_buffers = 3 if frame_buffers is None else frame_buffers
+    io_hub_buffers = (2 if frame_hub_buffers > 2 else frame_hub_buffers) if io_buffers is None else io_buffers
 
-        frame_hub = AtomicStreamHub(bus.shared["frame_bytes"] + frame_tail, num_buffers=frame_hub_buffers)
-        io_hub = AtomicStreamHub(max_jpeg_bytes + io_tail, num_buffers=io_hub_buffers)
+    frame_hub = AtomicStreamHub(bus.shared["frame_bytes"] + frame_tail, num_buffers=frame_hub_buffers)
+    io_hub = AtomicStreamHub(max_jpeg_bytes + io_tail, num_buffers=io_hub_buffers)
 
-        bus.set_service("frame_hub", frame_hub)
-        bus.set_service("io_hub", io_hub)
+    bus.set_service("frame_hub", frame_hub)
+    bus.set_service("io_hub", io_hub)
 
     return bus

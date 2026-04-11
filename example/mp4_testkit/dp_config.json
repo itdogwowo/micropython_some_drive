@@ -42,8 +42,6 @@
     "autoplay": true,
     "loop": true,
     "pipeline": {
-      "enabled": true,
-      "mode": "io_on_cpu0",
       "io_buffers": 2,
       "frame_buffers": 3
     },
