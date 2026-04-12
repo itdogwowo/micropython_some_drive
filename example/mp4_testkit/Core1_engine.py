@@ -18,7 +18,6 @@ def task_loop(bus):
     while bus.shared.get("engine_run", True):
         in_view = io_hub.get_read_view()
         if in_view is None:
-            time.sleep_ms(0)
             continue
 
         tail_off = max_jpeg_bytes
@@ -27,12 +26,10 @@ def task_loop(bus):
 
         if n <= 0:
             io_hub.release_read()
-            time.sleep_ms(0)
             continue
 
         out_view = frame_hub.get_write_view()
         while out_view is None:
-            time.sleep_ms(0)
             out_view = frame_hub.get_write_view()
 
         t0 = time.ticks_us()
@@ -45,7 +42,6 @@ def task_loop(bus):
                 decoder.decode_into(in_view[:n], out_view[:frame_bytes])
         except Exception:
             io_hub.release_read()
-            time.sleep_ms(1)
             continue
         t1 = time.ticks_us()
 

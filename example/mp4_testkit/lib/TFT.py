@@ -2,6 +2,9 @@ import os
 import gc
 import machine ,time
 
+def _sleep_ms(_ms):
+    return
+
 class VideoStreamReader:
     def __init__(self, filename, frame_size=1024 * 1024):
         self.filename = filename
@@ -100,14 +103,14 @@ class TFT:
         self.rst.init(machine.Pin.OUT, value=1)
         
         self.reset()
-        time.sleep_ms(100)
+        _sleep_ms(100)
     
     def reset(self):
         """硬體重置顯示器"""
         self.rst(0)
-        time.sleep_ms(50)
+        _sleep_ms(50)
         self.rst(1)
-        time.sleep_ms(50)
+        _sleep_ms(50)
     
     def write_cmd(self, cmd):
         """寫入命令到顯示器"""
@@ -281,7 +284,7 @@ class ST7735(TFT):
         
         for cmd, data in init_cmds:
             self.write_cmd_data(cmd, data)
-            time.sleep_ms(10)
+            _sleep_ms(10)
         
         self.set_window(0, 0)
     
@@ -349,7 +352,7 @@ class ST7789(TFT):
         
         for cmd, data in init_cmds:
             self.write_cmd_data(cmd, data)
-            time.sleep_ms(10)
+            _sleep_ms(10)
         
         self.set_window(0, 0)
     
@@ -415,7 +418,7 @@ class ST7789T3(ST7789):
         
         for cmd, data in init_cmds:
             self.write_cmd_data(cmd, data)
-            time.sleep_ms(10)
+            _sleep_ms(10)
         
         self.set_window(0, 0)
 
@@ -484,7 +487,7 @@ class GC9A01(TFT):
         
         for cmd, data in init_cmds:
             self.write_cmd_data(cmd, data)
-            time.sleep_ms(10)
+            _sleep_ms(10)
 
         self.set_window(0, 0)
     
@@ -533,11 +536,11 @@ class ILI9341(TFT):
     def init(self):
         # 硬體復位序列
         self.rst(1)
-        time.sleep_ms(5)
+        _sleep_ms(5)
         self.rst(0)
-        time.sleep_ms(20)
+        _sleep_ms(20)
         self.rst(1)
-        time.sleep_ms(150)
+        _sleep_ms(150)
         
         # ILI9341 初始化命令序列
         init_cmds = [
@@ -567,10 +570,10 @@ class ILI9341(TFT):
         # 發送初始化命令
         for cmd, data in init_cmds:
             self.write_cmd_data(cmd, data)
-            time.sleep_ms(10)
+            _sleep_ms(10)
         
         # 額外延時確保初始化完成
-        time.sleep_ms(120)
+        _sleep_ms(120)
         self.set_window(0, 0, self.width - 1, self.height - 1)
     
     def _get_madctl_cmd(self):
@@ -683,14 +686,14 @@ class GC9D01(TFT):
         # 執行初始化命令
         for cmd, data in init_cmds:
             self.write_cmd_data(cmd, data)
-            time.sleep_ms(5)
+            _sleep_ms(5)
         
         # 等待200ms (根據您提供的Delay(200))
-        time.sleep_ms(200)
+        _sleep_ms(200)
         
         # 開啟顯示
         self.write_cmd(0x29)
-        time.sleep_ms(50)
+        _sleep_ms(50)
         
         # 設置窗口
         self.set_window(0, 0)

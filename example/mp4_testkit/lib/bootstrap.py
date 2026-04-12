@@ -3,7 +3,7 @@ from machine import Pin, SPI
 
 from lib.buffer_hub import AtomicStreamHub
 from lib.config_loader import load_config
-from lib.media_source import compute_max_file_size, list_jpegs
+from lib.media_source import compute_max_file_size, compute_max_frame_size, list_jpegs
 from lib.sys_bus import SysBus
 
 
@@ -100,7 +100,7 @@ def build_bus():
     bus.shared["config"] = cfg
     bus.shared["width"] = width
     bus.shared["height"] = height
-    bus.shared["frame_bytes"] = width * height * 2
+    bus.shared["frame_bytes"] = compute_max_frame_size(paths, default_bytes=width * height * 2)
     bus.shared["max_jpeg_bytes"] = max_jpeg_bytes
     bus.shared["jpeg_block"] = block
     bus.shared["jpeg_step_blocks"] = step_blocks
