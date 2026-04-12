@@ -1,15 +1,14 @@
 import time
 
 
-# 控制每圈迴圈的節奏：以「開始時間」為基準，補足到 target_ms 的剩餘時間
-def _pace(target_ms, start_ms):
-    if target_ms <= 0:
-        time.sleep_ms(0)
-        return
+_SLEEP_US = getattr(time, "sleep_us", None)
 
-    dt = time.ticks_diff(time.ticks_ms(), start_ms)
-    if dt < target_ms:
-        time.sleep_ms(target_ms - dt)
+
+def _yield():
+    if _SLEEP_US is not None:
+        _SLEEP_US(50)
+    else:
+        time.sleep_ms(1)
 
 
 # Core0 主要工作迴圈：
@@ -91,11 +90,13 @@ def task_loop(bus):
                 else:
                     idx = len(paths) - 1
         else:
-            # 沒有可寫 buffer：讓出時間片，避免忙等佔滿 CPU
-            time.sleep_ms(0)
+            _yield()
 
     # B2. 主迴圈：持續餵 JPEG 到 io_hub；同時從 frame_hub 取出已解碼 frame 顯示到 LCD
+    next_due = time.ticks_ms()
     while True:
+        did_work = False
+
         # (供給者) 盡可能把下一張 JPEG 送進 io_hub
         w = io_hub.get_write_view()
         if w is not None:
@@ -120,16 +121,18 @@ def task_loop(bus):
                     idx = 0
                 else:
                     idx = len(paths) - 1
+            did_work = True
 
-        # (顯示者) 從 frame_hub 取出已解碼的 frame；若拿到就立刻顯示並依 pace_ms 節奏節流
-        r = frame_hub.get_read_view()
-        if r is not None:
-            st = time.ticks_ms()
-            lcd.write_data(r[:frame_bytes])
-            frame_hub.release_read()
-            _stats_on_frame()
-            _pace(pace_ms, st)
+        now = time.ticks_ms()
+        if pace_ms <= 0 or time.ticks_diff(now, next_due) >= 0:
+            r = frame_hub.get_read_view()
+            if r is not None:
+                lcd.write_data(r[:frame_bytes])
+                frame_hub.release_read()
+                _stats_on_frame()
+                did_work = True
+                if pace_ms > 0:
+                    next_due = time.ticks_add(now, pace_ms)
 
-        # pace_ms<=0 時，仍需 yield，避免佔滿 CPU 造成其他 core/中斷飢餓
-        if pace_ms <= 0:
-            time.sleep_ms(0)
+        if not did_work:
+            _yield()
