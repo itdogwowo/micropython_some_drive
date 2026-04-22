@@ -4,11 +4,13 @@ from machine import Pin, SPI
 from lib.buffer_hub import AtomicStreamHub
 from lib.config_loader import load_config
 from lib.media_source import compute_max_file_size, compute_max_frame_size, list_jpegs
+from lib.storage_sd import init_sd
 from lib.sys_bus import SysBus
 
 
 def build_bus():
     cfg = load_config()
+    sd_dev, sd_path, sd_err = init_sd(cfg)
 
     assets_root = (cfg.get("assets_root", "/jpeg") or "/jpeg").rstrip("/")
     tft_cfg = cfg.get("tft", {}) or {}
@@ -98,6 +100,9 @@ def build_bus():
 
     bus = SysBus()
     bus.shared["config"] = cfg
+    bus.shared["sd_path"] = sd_path
+    bus.shared["sd_error"] = sd_err
+    bus.shared["data_Phat"] = sd_path
     bus.shared["width"] = width
     bus.shared["height"] = height
     bus.shared["frame_bytes"] = compute_max_frame_size(paths, default_bytes=width * height * 2)
@@ -114,6 +119,10 @@ def build_bus():
     bus.shared["engine_run"] = True
     bus.shared["core1_ready"] = False
 
+    if sd_dev is not None:
+        bus.set_service("sdcard", sd_dev)
+    if sd_path:
+        bus.set_service("data_Phat", sd_path)
     bus.set_service("lcd", lcd)
     bus.set_service("decoder", decoder)
     bus.set_service("paths", paths)

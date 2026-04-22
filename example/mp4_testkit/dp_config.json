@@ -1,5 +1,12 @@
 {
   "assets_root": "/jpeg",
+  "SDcard": {
+    "enable": 0,
+    "phat": "/sd",
+    "LDO": { "id": 4, "mv": 3300 },
+    "config": { "slot": 0, "width": 4, "freq": 40000000 },
+    "GPIO": { "sck": 7, "cmd": 6, "data": [5, 4, 16, 15] }
+  },
   "tft": {
     "driver": "GC9A01",
     "width": 240,
