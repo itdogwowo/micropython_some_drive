@@ -146,7 +146,10 @@ def task_loop(bus):
         if pack is not None:
             print("[Core0] pack:", getattr(pack, "path", "?"))
 
-    idx = 0
+    idx = int(bus.shared.get("src_idx", 0) or 0)
+    if paths and idx >= len(paths):
+        idx = 0
+        bus.shared["src_idx"] = 0
     # 主迴圈：持續餵 JPEG 到 io_hub；同時從 frame_hub 取出已解碼 frame 顯示到 LCD
     while True:
         did_work = False
@@ -172,7 +175,8 @@ def task_loop(bus):
             if pace_ms > 0:
                 time.sleep_ms(pace_ms)
         else:
-            if jpeg_cache is None and pack is None and io_hub.get_fill_level() < io_prefetch:
+            cache_active = bool(bus.shared.get("cache_active", False))
+            if pack is None and (not cache_active) and io_hub.get_fill_level() < io_prefetch:
                 w = io_hub.get_write_view()
                 if w is not None:
                     p = paths[idx]
@@ -193,8 +197,9 @@ def task_loop(bus):
                             idx = 0
                         else:
                             idx = len(paths) - 1
+                    bus.shared["src_idx"] = idx
                     did_work = True
-            if jpeg_cache is None and pack is not None and io_hub.get_fill_level() < io_prefetch:
+            if pack is not None and io_hub.get_fill_level() < io_prefetch:
                 w = io_hub.get_write_view()
                 if w is not None:
                     frame_idx, n, read_us = pack.read_next_into(w, max_jpeg_bytes)

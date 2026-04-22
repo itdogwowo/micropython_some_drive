@@ -1,6 +1,6 @@
 {
   "assets_pack": "",
-  "assets_root": "/jpeg",
+  "assets_root": "/sd",
   "tft": {
     "driver": "GC9A01",
     "width": 240,
@@ -49,15 +49,14 @@
       "io_prefetch": 2,
       "io_read_chunk": 0,
       "preload": true,
-      "preload_limit_bytes": 6291456
+      "preload_limit_bytes": 524288
     },
     "stats": {
       "enabled": true,
       "interval_ms": 1000,
       "frames_n": 60
     }
-  }
-  ,
+  },
   "SDcard": {
     "enable": 1,
     "phat": "/sd",

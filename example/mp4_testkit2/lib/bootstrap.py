@@ -23,8 +23,13 @@ def build_bus():
         print("[SD]", sd_mount)
 
     assets_root = (cfg.get("assets_root", "/jpeg") or "/jpeg").rstrip("/")
-    if assets_root in ("/sd", "/sdcard", "/SD", "/SDCARD") and sd_mount:
-        assets_root = sd_mount.rstrip("/")
+    if assets_root in ("/sd", "/sdcard", "/SD", "/SDCARD"):
+        if sd_mount:
+            assets_root = sd_mount.rstrip("/")
+        else:
+            assets_root = "/jpeg"
+            if debug:
+                print("[SD] not mounted, fallback assets_root=/jpeg")
     tft_cfg = cfg.get("tft", {}) or {}
     jpeg_cfg = cfg.get("jpeg", {}) or {}
     layout = (cfg.get("display_Layout") or [{}])[0] or {}
@@ -72,16 +77,32 @@ def build_bus():
 
     cache = None
     pack = None
+    pack_candidates = []
     if isinstance(assets_pack, str) and assets_pack:
+        pack_candidates.append(assets_pack)
+    else:
+        if sd_mount:
+            pack_candidates.append(sd_mount.rstrip("/") + "/" + folder + ".jpk")
+        pack_candidates.append("/jpeg/" + folder + ".jpk")
+        pack_candidates.append(assets_root + "/" + folder + ".jpk")
+
+    for cand in pack_candidates:
         try:
-            pack = PackSource(assets_pack, loop=loop_play)
-            print("[Pack] using:", assets_pack, "count:", pack.count, "max_size:", pack.max_size)
+            os.stat(cand)
+        except Exception:
+            continue
+        try:
+            pack = PackSource(cand, loop=loop_play)
+            print("[Pack] using:", cand, "count:", pack.count, "max_size:", pack.max_size)
             if max_jpeg_bytes <= 0:
                 max_jpeg_bytes = int(pack.max_size)
             paths = []
+            break
         except Exception as e:
             pack = None
-            print("[Pack] unavailable:", assets_pack, "-> fallback folder. err:", e)
+            print("[Pack] unavailable:", cand, "-> fallback folder. err:", e)
+            if isinstance(assets_pack, str) and assets_pack:
+                break
 
     if pack is None:
         try:
@@ -120,8 +141,10 @@ def build_bus():
             cache.append((i, memoryview(b), n))
             total += sz
             gc.collect()
+        if not cache:
+            cache = None
         if debug:
-            print("[Preload] frames:", len(cache), "bytes:", total)
+            print("[Preload] frames:", 0 if cache is None else len(cache), "bytes:", total)
 
     spi_cfg = tft_cfg.get("spi", {}) or {}
     pins_cfg = tft_cfg.get("pins", {}) or {}
@@ -186,6 +209,11 @@ def build_bus():
         bus.set_service("pack", pack)
     if cache is not None:
         bus.set_service("jpeg_cache", cache)
+        bus.shared["cache_active"] = True
+        bus.shared["src_idx"] = len(cache)
+    else:
+        bus.shared["cache_active"] = False
+        bus.shared["src_idx"] = 0
 
     frame_tail = 16
     io_tail = 16 + 16
@@ -193,7 +221,7 @@ def build_bus():
     bus.shared["io_tail"] = io_tail
 
     frame_hub_buffers = 3 if frame_buffers is None else frame_buffers
-    io_hub_buffers = (2 if frame_hub_buffers > 2 else frame_hub_buffers) if io_buffers is None else io_buffers
+    io_hub_buffers = frame_hub_buffers if io_buffers is None else io_buffers
 
     frame_hub = AtomicStreamHub(bus.shared["frame_bytes"] + frame_tail, num_buffers=frame_hub_buffers)
     io_hub = AtomicStreamHub(max_jpeg_bytes + io_tail, num_buffers=io_hub_buffers)

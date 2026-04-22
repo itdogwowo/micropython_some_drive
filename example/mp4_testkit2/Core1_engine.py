@@ -27,7 +27,7 @@ def task_loop(bus):
 
     cache_idx = 0
     while bus.shared.get("engine_run", True):
-        if jpeg_cache is not None:
+        if jpeg_cache is not None and bool(bus.shared.get("cache_active", False)):
             out_view = frame_hub.get_write_view()
             while out_view is None:
                 out_view = frame_hub.get_write_view()
@@ -57,10 +57,8 @@ def task_loop(bus):
 
             cache_idx += 1
             if cache_idx >= len(jpeg_cache):
-                if bool(bus.shared.get("loop_play", True)):
-                    cache_idx = 0
-                else:
-                    cache_idx = len(jpeg_cache) - 1
+                cache_idx = 0
+                bus.shared["cache_active"] = False
             continue
 
         in_view = io_hub.get_read_view()
