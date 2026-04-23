@@ -30,6 +30,7 @@ def build_bus():
             assets_root = "/jpeg"
             if debug:
                 print("[SD] not mounted, fallback assets_root=/jpeg")
+    print('assets_root : ',assets_root)
     tft_cfg = cfg.get("tft", {}) or {}
     jpeg_cfg = cfg.get("jpeg", {}) or {}
     layout = (cfg.get("display_Layout") or [{}])[0] or {}
@@ -80,11 +81,6 @@ def build_bus():
     pack_candidates = []
     if isinstance(assets_pack, str) and assets_pack:
         pack_candidates.append(assets_pack)
-    else:
-        if sd_mount:
-            pack_candidates.append(sd_mount.rstrip("/") + "/" + folder + ".jpk")
-        pack_candidates.append("/jpeg/" + folder + ".jpk")
-        pack_candidates.append(assets_root + "/" + folder + ".jpk")
 
     for cand in pack_candidates:
         try:
@@ -263,7 +259,9 @@ def build_bus():
     bus.set_service("frame_hub", frame_hub)
     bus.set_service("io_hub", io_hub)
 
-    raw_prefetch = -2 if pipeline_io_prefetch is None else int(pipeline_io_prefetch)
+    # Folder I/O jitter is higher than pack; keep queue fuller by default.
+    default_prefetch = -1 if pack is None else -2
+    raw_prefetch = default_prefetch if pipeline_io_prefetch is None else int(pipeline_io_prefetch)
     if raw_prefetch < 0:
         io_prefetch = io_hub_buffers + raw_prefetch
         if pipeline_io_prefetch is None and io_prefetch < 1 and io_hub_buffers > 0:

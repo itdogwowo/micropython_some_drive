@@ -40,7 +40,7 @@
     }
   ],
   "player": {
-    "pace_ms": 0,
+    "pace_ms": 33,
     "autoplay": true,
     "loop": true,
     "pipeline": {

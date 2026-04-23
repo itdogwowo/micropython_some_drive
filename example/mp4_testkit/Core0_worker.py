@@ -179,6 +179,10 @@ def task_loop(bus):
                     dt_ms = time.ticks_diff(now_ms, frame_t0_ms)
                     if dt_ms >= pace_ms:
                         break
+                    remain = pace_ms - dt_ms
+                    if remain <= 2:
+                        time.sleep_ms(1)
+                        continue
 
                     cache_active = bool(bus.shared.get("cache_active", False))
                     if io_hub.get_fill_level() < io_prefetch:
@@ -214,7 +218,6 @@ def task_loop(bus):
                                 bus.shared["src_idx"] = idx
                                 continue
 
-                    remain = pace_ms - dt_ms
                     time.sleep_ms(remain if remain < 5 else 5)
         else:
             cache_active = bool(bus.shared.get("cache_active", False))
