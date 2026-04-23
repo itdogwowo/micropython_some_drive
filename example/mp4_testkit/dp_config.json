@@ -1,19 +1,14 @@
 {
-  "assets_root": "/jpeg",
-  "SDcard": {
-    "enable": 0,
-    "phat": "/sd",
-    "LDO": { "id": 4, "mv": 3300 },
-    "config": { "slot": 0, "width": 4, "freq": 40000000 },
-    "GPIO": { "sck": 7, "cmd": 6, "data": [5, 4, 16, 15] }
-  },
+  "assets_pack": "",
+  "assets_root": "/sd",
   "tft": {
     "driver": "GC9A01",
     "width": 240,
-    "height": 240,
+    "height": 320,
     "rotation": 0,
     "color_order": "RGB",
     "invert": true,
+    "write_chunk": 32768,
     "spi": {
       "id": 1,
       "baudrate": 80000000,
@@ -31,14 +26,14 @@
     "rotation": 0,
     "block": true,
     "return_bytes": false,
-    "step_blocks": 1,
+    "step_blocks": 0,
     "max_jpeg_bytes": 0
   },
   "display_Layout": [
     {
       "type": "background",
       "height": 240,
-      "width": 240,
+      "width": 320,
       "x": 0,
       "y": 0,
       "depth": -1
@@ -49,13 +44,28 @@
     "autoplay": true,
     "loop": true,
     "pipeline": {
-      "io_buffers": 2,
-      "frame_buffers": 3
+      "io_buffers": 3,
+      "frame_buffers": 3,
+      "preload": 16
     },
     "stats": {
       "enabled": true,
       "interval_ms": 1000,
       "frames_n": 60
+    }
+  },
+  "SDcard": {
+    "enable": 1,
+    "phat": "/sd",
+    "config": {
+      "slot": 0,
+      "width": 4,
+      "freq": 20000000
+    },
+    "GPIO": {
+      "sck": 7,
+      "cmd": 6,
+      "data": [5, 4, 16, 15]
     }
   }
 }

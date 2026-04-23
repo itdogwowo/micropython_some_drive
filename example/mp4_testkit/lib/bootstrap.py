@@ -1,22 +1,39 @@
 import jpeg
 from machine import Pin, SPI
+import gc
+import os
 
 from lib.buffer_hub import AtomicStreamHub
 from lib.config_loader import load_config
 from lib.media_source import compute_max_file_size, compute_max_frame_size, list_jpegs
-from lib.storage_sd import init_sd
+from lib.pack_source import PackSource
+from lib.sdio_mount import mount_from_config
 from lib.sys_bus import SysBus
 
 
 def build_bus():
     cfg = load_config()
-    sd_dev, sd_path, sd_err = init_sd(cfg)
+    player_cfg = cfg.get("player", {}) or {}
+    debug = bool(cfg.get("debug", False) or player_cfg.get("debug", False))
+    if debug:
+        print("[Config]", cfg.get("_config_path", "?"))
+
+    sd_mount = mount_from_config(cfg)
+    if debug and sd_mount:
+        print("[SD]", sd_mount)
 
     assets_root = (cfg.get("assets_root", "/jpeg") or "/jpeg").rstrip("/")
+    if assets_root in ("/sd", "/sdcard", "/SD", "/SDCARD"):
+        if sd_mount:
+            assets_root = sd_mount.rstrip("/")
+        else:
+            assets_root = "/jpeg"
+            if debug:
+                print("[SD] not mounted, fallback assets_root=/jpeg")
     tft_cfg = cfg.get("tft", {}) or {}
     jpeg_cfg = cfg.get("jpeg", {}) or {}
-    player_cfg = cfg.get("player", {}) or {}
     layout = (cfg.get("display_Layout") or [{}])[0] or {}
+    assets_pack = cfg.get("assets_pack", None)
 
     width = int(tft_cfg.get("width", layout.get("width", 240)))
     height = int(tft_cfg.get("height", layout.get("height", 240)))
@@ -37,6 +54,10 @@ def build_bus():
     pipeline_cfg = player_cfg.get("pipeline", {}) or {}
     pipeline_io_buffers = pipeline_cfg.get("io_buffers", None)
     pipeline_frame_buffers = pipeline_cfg.get("frame_buffers", None)
+    pipeline_io_prefetch = pipeline_cfg.get("io_prefetch", None)
+    pipeline_io_read_chunk = pipeline_cfg.get("io_read_chunk", None)
+    pipeline_preload = pipeline_cfg.get("preload", None)
+    pipeline_preload_limit = pipeline_cfg.get("preload_limit_bytes", None)
     io_buffers = None if pipeline_io_buffers is None else int(pipeline_io_buffers)
     frame_buffers = None if pipeline_frame_buffers is None else int(pipeline_frame_buffers)
     stats_cfg = player_cfg.get("stats", {}) or {}
@@ -54,14 +75,110 @@ def build_bus():
         return_bytes=return_bytes,
     )
 
-    paths = list_jpegs(folder_path)
-    if not paths:
-        raise OSError("No JPEG files in: " + folder_path)
-    if depth > 0 and depth < len(paths):
-        paths = paths[:depth]
+    cache = None
+    pack = None
+    pack_candidates = []
+    if isinstance(assets_pack, str) and assets_pack:
+        pack_candidates.append(assets_pack)
+    else:
+        if sd_mount:
+            pack_candidates.append(sd_mount.rstrip("/") + "/" + folder + ".jpk")
+        pack_candidates.append("/jpeg/" + folder + ".jpk")
+        pack_candidates.append(assets_root + "/" + folder + ".jpk")
 
-    if max_jpeg_bytes <= 0:
-        max_jpeg_bytes = compute_max_file_size(paths)
+    for cand in pack_candidates:
+        try:
+            os.stat(cand)
+        except Exception:
+            continue
+        try:
+            pack = PackSource(cand, loop=loop_play)
+            print("[Pack] using:", cand, "count:", pack.count, "max_size:", pack.max_size)
+            if max_jpeg_bytes <= 0:
+                max_jpeg_bytes = int(pack.max_size)
+            paths = []
+            break
+        except Exception as e:
+            pack = None
+            print("[Pack] unavailable:", cand, "-> fallback folder. err:", e)
+            if isinstance(assets_pack, str) and assets_pack:
+                break
+
+    if pack is None:
+        try:
+            paths = list_jpegs(folder_path)
+        except OSError as e:
+            raise OSError(
+                "Assets folder not found: {} (assets_root={}, type={}). "
+                "If using SD, ensure SDcard.enable is true and the folder exists. "
+                "Or set assets_pack to a .jpk file.".format(folder_path, assets_root, folder)
+            ) from e
+        if not paths:
+            raise OSError("No JPEG files in: " + folder_path)
+        if depth > 0 and depth < len(paths):
+            paths = paths[:depth]
+
+        if max_jpeg_bytes <= 0:
+            max_jpeg_bytes = compute_max_file_size(paths)
+
+    if pack is None:
+        preload_cfg = pipeline_preload
+        preload_units = None
+        preload_enabled = False
+        if preload_cfg is None:
+            preload_enabled = True
+        elif isinstance(preload_cfg, bool):
+            preload_enabled = bool(preload_cfg)
+        else:
+            try:
+                preload_units = int(preload_cfg)
+                preload_enabled = preload_units > 0
+            except Exception:
+                preload_enabled = False
+
+    if pack is None and preload_enabled:
+        if preload_units is not None:
+            limit = int(max_jpeg_bytes) * int(preload_units)
+        else:
+            if pipeline_preload_limit is None:
+                req_limit = -1
+            else:
+                req_limit = int(pipeline_preload_limit)
+            if req_limit < 0:
+                tmp_frame_hub_buffers = 3 if frame_buffers is None else frame_buffers
+                tmp_io_hub_buffers = tmp_frame_hub_buffers if io_buffers is None else io_buffers
+                mf = 0
+                try:
+                    mf = int(gc.mem_free())
+                except Exception:
+                    mf = 0
+                cap = (mf * 25) // 100 if mf > 0 else 0
+                target = int(max_jpeg_bytes) * int(tmp_io_hub_buffers) * 16
+                limit = target if cap <= 0 else (cap if target > cap else target)
+            else:
+                limit = req_limit
+        if limit < 0:
+            limit = 0
+        total = 0
+        cache = []
+        for i, p in enumerate(paths):
+            sz = int(os.stat(p)[6])
+            if sz <= 0:
+                continue
+            if limit and (total + sz) > limit:
+                break
+            b = bytearray(sz)
+            with open(p, "rb") as f:
+                n = f.readinto(b)
+            if n is None:
+                n = 0
+            cache.append((i, memoryview(b), n))
+            total += sz
+            gc.collect()
+        if not cache:
+            cache = None
+        if debug:
+            print("[Preload] frames:", 0 if cache is None else len(cache), "bytes:", total)
 
     spi_cfg = tft_cfg.get("spi", {}) or {}
     pins_cfg = tft_cfg.get("pins", {}) or {}
@@ -96,13 +213,13 @@ def build_bus():
         color_order=color_order,
         invert=invert,
     )
+    write_chunk = int(tft_cfg.get("write_chunk", 32768) or 0)
+    lcd.write_chunk = write_chunk
     lcd.set_window(0, 0)
 
     bus = SysBus()
     bus.shared["config"] = cfg
-    bus.shared["sd_path"] = sd_path
-    bus.shared["sd_error"] = sd_err
-    bus.shared["data_Phat"] = sd_path
+    bus.shared["debug"] = debug
     bus.shared["width"] = width
     bus.shared["height"] = height
     bus.shared["frame_bytes"] = compute_max_frame_size(paths, default_bytes=width * height * 2)
@@ -119,26 +236,47 @@ def build_bus():
     bus.shared["engine_run"] = True
     bus.shared["core1_ready"] = False
 
-    if sd_dev is not None:
-        bus.set_service("sdcard", sd_dev)
-    if sd_path:
-        bus.set_service("data_Phat", sd_path)
     bus.set_service("lcd", lcd)
     bus.set_service("decoder", decoder)
     bus.set_service("paths", paths)
+    if pack is not None:
+        bus.set_service("pack", pack)
+    if cache is not None:
+        bus.set_service("jpeg_cache", cache)
+        bus.shared["cache_active"] = True
+        bus.shared["src_idx"] = len(cache)
+    else:
+        bus.shared["cache_active"] = False
+        bus.shared["src_idx"] = 0
 
     frame_tail = 16
-    io_tail = 16
+    io_tail = 16 + 16
     bus.shared["frame_tail"] = frame_tail
     bus.shared["io_tail"] = io_tail
 
     frame_hub_buffers = 3 if frame_buffers is None else frame_buffers
-    io_hub_buffers = (2 if frame_hub_buffers > 2 else frame_hub_buffers) if io_buffers is None else io_buffers
+    io_hub_buffers = frame_hub_buffers if io_buffers is None else io_buffers
 
     frame_hub = AtomicStreamHub(bus.shared["frame_bytes"] + frame_tail, num_buffers=frame_hub_buffers)
     io_hub = AtomicStreamHub(max_jpeg_bytes + io_tail, num_buffers=io_hub_buffers)
 
     bus.set_service("frame_hub", frame_hub)
     bus.set_service("io_hub", io_hub)
+
+    raw_prefetch = -2 if pipeline_io_prefetch is None else int(pipeline_io_prefetch)
+    if raw_prefetch < 0:
+        io_prefetch = io_hub_buffers + raw_prefetch
+        if pipeline_io_prefetch is None and io_prefetch < 1 and io_hub_buffers > 0:
+            io_prefetch = 1
+    else:
+        io_prefetch = raw_prefetch
+    if io_prefetch > io_hub_buffers:
+        io_prefetch = io_hub_buffers
+    bus.shared["io_prefetch"] = io_prefetch
+
+    io_read_chunk = 0 if pipeline_io_read_chunk is None else int(pipeline_io_read_chunk)
+    if io_read_chunk < 0:
+        io_read_chunk = 0
+    bus.shared["io_read_chunk"] = io_read_chunk
 
     return bus
