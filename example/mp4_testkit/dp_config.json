@@ -2,7 +2,7 @@
   "assets_pack": "",
   "assets_root": "/sd",
   "tft": {
-    "driver": "GC9A01",
+    "driver": "ST7789",
     "width": 240,
     "height": 320,
     "rotation": 0,
