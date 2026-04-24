@@ -41,6 +41,7 @@
   ],
   "player": {
     "pace_ms": 33,
+    "pace_frames": 1,
     "autoplay": true,
     "loop": true,
     "pipeline": {

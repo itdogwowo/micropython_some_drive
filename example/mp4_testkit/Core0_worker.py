@@ -150,9 +150,42 @@ def task_loop(bus):
     if paths and idx >= len(paths):
         idx = 0
         bus.shared["src_idx"] = 0
+
+    def _get_pace_frames():
+        n = int(bus.shared.get("pace_frames", 1) or 1)
+        return 1 if n < 1 else n
+
+    def _advance_idx(i, step):
+        if not paths:
+            return i
+        i += step
+        if i < len(paths):
+            return i
+        if loop_play:
+            return i % len(paths)
+        return len(paths) - 1
+
+    def _pack_fill_step(w, step):
+        step = 1 if step < 1 else step
+        frame_idx = 0
+        n = 0
+        read_us2 = 0
+        if step > 1:
+            _, dt_skip = pack.skip_next(step - 1)
+            read_us2 += dt_skip
+        frame_idx, n, dt_read = pack.read_next_into(w, max_jpeg_bytes)
+        read_us2 += dt_read
+        if n <= 0:
+            frame_idx = 0
+        tail_off = max_jpeg_bytes
+        write_u32_le(w, tail_off + 0, frame_idx if frame_idx is not None else 0)
+        write_u32_le(w, tail_off + 4, n)
+        write_u32_le(w, tail_off + 8, read_us2)
+        io_hub.commit()
     # 主迴圈：持續餵 JPEG 到 io_hub；同時從 frame_hub 取出已解碼 frame 顯示到 LCD
     while True:
         did_work = False
+
 
         r = frame_hub.get_read_view()
         if r is not None:
@@ -189,14 +222,7 @@ def task_loop(bus):
                         w = io_hub.get_write_view()
                         if w is not None:
                             if pack is not None:
-                                frame_idx, n, read_us2 = pack.read_next_into(w, max_jpeg_bytes)
-                                if n <= 0:
-                                    frame_idx = 0
-                                tail_off = max_jpeg_bytes
-                                write_u32_le(w, tail_off + 0, frame_idx if frame_idx is not None else 0)
-                                write_u32_le(w, tail_off + 4, n)
-                                write_u32_le(w, tail_off + 8, read_us2)
-                                io_hub.commit()
+                                _pack_fill_step(w, _get_pace_frames())
                                 continue
                             if (not cache_active) and paths:
                                 p = paths[idx]
@@ -209,12 +235,7 @@ def task_loop(bus):
                                 write_u32_le(w, tail_off + 4, n)
                                 write_u32_le(w, tail_off + 8, read_us2)
                                 io_hub.commit()
-                                idx += 1
-                                if idx >= len(paths):
-                                    if loop_play:
-                                        idx = 0
-                                    else:
-                                        idx = len(paths) - 1
+                                idx = _advance_idx(idx, _get_pace_frames())
                                 bus.shared["src_idx"] = idx
                                 continue
 
@@ -236,26 +257,13 @@ def task_loop(bus):
                     write_u32_le(w, tail_off + 8, read_us)
                     io_hub.commit()
 
-                    idx += 1
-                    if idx >= len(paths):
-                        if loop_play:
-                            idx = 0
-                        else:
-                            idx = len(paths) - 1
+                    idx = _advance_idx(idx, _get_pace_frames())
                     bus.shared["src_idx"] = idx
                     did_work = True
             if pack is not None and io_hub.get_fill_level() < io_prefetch:
                 w = io_hub.get_write_view()
                 if w is not None:
-                    frame_idx, n, read_us = pack.read_next_into(w, max_jpeg_bytes)
-                    if n <= 0:
-                        frame_idx = 0
-
-                    tail_off = max_jpeg_bytes
-                    write_u32_le(w, tail_off + 0, frame_idx if frame_idx is not None else 0)
-                    write_u32_le(w, tail_off + 4, n)
-                    write_u32_le(w, tail_off + 8, read_us)
-                    io_hub.commit()
+                    _pack_fill_step(w, _get_pace_frames())
                     did_work = True
 
         if not did_work:

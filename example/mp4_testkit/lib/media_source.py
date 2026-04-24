@@ -19,7 +19,7 @@ def compute_max_file_size(paths, default_bytes=64 * 1024):
     return max_bytes if max_bytes > 0 else default_bytes
 
 
-def compute_max_frame_size(paths, default_bytes=240 * 240 * 2):
+def compute_max_frame_size(paths, default_bytes=240 * 240, bytes_per_pixel=2):
     max_w = 0
     max_h = 0
     for p in paths:
@@ -47,5 +47,5 @@ def compute_max_frame_size(paths, default_bytes=240 * 240 * 2):
             pass
             
     if max_w > 0 and max_h > 0:
-        return max_w * max_h * 2
-    return default_bytes
+        return max_w * max_h * int(bytes_per_pixel)
+    return int(default_bytes) * int(bytes_per_pixel)
