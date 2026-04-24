@@ -9,6 +9,8 @@ import re
 import shutil
 import struct
 import sys
+import time
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 from typing import List, Sequence
@@ -19,6 +21,99 @@ SUPPORTED_VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".flv", ".wmv", ".m4v", 
 DEFAULT_WIDTH = 160
 DEFAULT_HEIGHT = 160
 DEFAULT_JPEG_QUALITY = 85
+
+
+class ConsoleUI:
+    @staticmethod
+    def hide_cursor() -> None:
+        sys.stdout.write("\033[?25l")
+        sys.stdout.flush()
+
+    @staticmethod
+    def show_cursor() -> None:
+        sys.stdout.write("\033[?25h")
+        sys.stdout.flush()
+
+    @staticmethod
+    def clear_screen() -> None:
+        sys.stdout.write("\033[H\033[2J\033[3J")
+        sys.stdout.flush()
+
+    @staticmethod
+    def draw_progress_bar(percent: float, width: int = 30) -> str:
+        pct = max(0.0, min(100.0, float(percent)))
+        filled = int(width * pct / 100.0)
+        return "█" * filled + "░" * (width - filled)
+
+
+class ProgressPanel:
+    def __init__(self, title: str, total: int | None, workers: int, width: int = 84) -> None:
+        self.title = title
+        self.total = total if (total is not None and total > 0) else None
+        self.workers = max(1, int(workers))
+        self.width = max(60, int(width))
+        self._lines = 0
+        self._last_render = 0.0
+        self._t0 = time.perf_counter()
+        self._done = 0
+
+    def _pad(self, text: str) -> str:
+        inner = self.width - 2
+        if len(text) > inner:
+            text = text[:inner]
+        return text.ljust(inner)
+
+    def _format(self, done: int, scheduled: int, pending: int, running: int, queued: int) -> str:
+        total = self.total
+        elapsed = max(0.0, time.perf_counter() - self._t0)
+        percent = 0.0
+        if total:
+            percent = (done / total) * 100.0
+            line1 = f" Done: {done}/{total} ({percent:5.1f}%)  Elapsed: {elapsed:6.1f}s"
+        else:
+            line1 = f" Done: {done}  Elapsed: {elapsed:6.1f}s"
+        line2 = f" Scheduled: {scheduled}  Pending: {pending}  Workers: {self.workers}"
+        line3 = f" Total: {ConsoleUI.draw_progress_bar(percent, 60)} {percent:5.1f}%" if total else ""
+        run_pct = (running / self.workers) * 100.0 if self.workers else 0.0
+        line4 = f" Running: {ConsoleUI.draw_progress_bar(run_pct, 30)} {running}/{self.workers}"
+        q_pct = 0.0 if pending <= 0 else min(100.0, (queued / max(1, pending)) * 100.0)
+        line5 = f" Queue  : {ConsoleUI.draw_progress_bar(q_pct, 30)} {queued}"
+
+        top = "╔" + "═" * (self.width - 2) + "╗"
+        head = "║" + self._pad(f" {self.title}") + "║"
+        mid = "╠" + "═" * (self.width - 2) + "╣"
+        rows = [
+            "║" + self._pad(line1) + "║",
+            "║" + self._pad(line2) + "║",
+            "║" + self._pad(line3) + "║" if line3 else None,
+            "║" + self._pad(line4) + "║",
+            "║" + self._pad(line5) + "║",
+        ]
+        rows = [row for row in rows if row is not None]
+        bot = "╚" + "═" * (self.width - 2) + "╝"
+        lines = [top, head, mid, *rows, bot]
+        return "\n".join(lines) + "\n", len(lines)
+
+    def complete_index(self, index: int) -> None:
+        self._done += 1
+
+    def update(self, scheduled: int, pending: int) -> None:
+        if not sys.stdout.isatty():
+            return
+        now = time.perf_counter()
+        if self._last_render and now - self._last_render < 0.12:
+            return
+        self._last_render = now
+
+        running = min(max(0, pending), self.workers)
+        queued = max(0, pending - self.workers)
+        content, lines = self._format(self._done, scheduled, pending, running, queued)
+
+        if self._lines:
+            sys.stdout.write(f"\033[{self._lines}A")
+        sys.stdout.write(content)
+        sys.stdout.flush()
+        self._lines = lines
 
 
 def natural_key(value: str) -> List[object]:
@@ -93,8 +188,41 @@ def build_jpk(jpeg_dir: Path, jpk_path: Path) -> tuple[int, int]:
     return len(jpeg_files), max_size
 
 
-def frame_digits() -> int:
-    return 3
+def frame_digits(total: int | None = None) -> int:
+    if not total or total <= 0:
+        return 3
+    return max(3, len(str(total - 1)))
+
+
+def estimate_object_size(value) -> int:
+    nbytes = getattr(value, "nbytes", None)
+    if isinstance(nbytes, int) and nbytes > 0:
+        return nbytes
+    try:
+        return sys.getsizeof(value)
+    except Exception:
+        return 0
+
+
+def convert_photo_one(
+    source_path: str,
+    output_path: str,
+    width: int,
+    height: int,
+    quality: int,
+) -> tuple[bool, str]:
+    pil_image_module = import_optional("PIL.Image")
+    if pil_image_module is None:
+        return False, "無法載入 Pillow。"
+
+    try:
+        with pil_image_module.open(source_path) as image:
+            rgb = image.convert("RGB")
+            processed = resize_crop_pil(rgb, width, height, pil_image_module)
+            processed.save(output_path, format="JPEG", quality=quality, optimize=False)
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
 
 
 class MCUMediaTool:
@@ -191,6 +319,10 @@ class MCUMediaTool:
             if value in allowed:
                 return value
             print("無效選項，請重新輸入。")
+
+    def prompt_yes_no(self, message: str, default: str = "n") -> bool:
+        value = self.prompt_choice(message, ["y", "n"], default=default)
+        return value == "y"
 
     def clean_path_input(self, value: str) -> str:
         cleaned = value.strip()
@@ -398,26 +530,124 @@ class MCUMediaTool:
         output_dir, jpk_path = paths
 
         print(f"\n開始輸出 JPEG 到: {output_dir}")
-        digits = frame_digits()
+        digits = frame_digits(total_frames)
         exported = 0
+        use_parallel = self.prompt_yes_no("並行輸出 (加速 JPEG 編碼/寫檔)", default="y" if total_frames >= 50 else "n")
+        workers = 1
+        max_pending = 1
+        if use_parallel:
+            default_workers = min(os.cpu_count() or 4, 8)
+            workers = self.prompt_int("並行工作數", default=default_workers)
+            max_pending = self.prompt_int("每批排程幀數", default=max(workers * 4, workers))
+            max_pending = max(max_pending, workers)
 
         try:
-            while True:
-                ok, frame = capture.read()
-                if not ok:
-                    break
+            if workers <= 1:
+                while True:
+                    ok, frame = capture.read()
+                    if not ok:
+                        break
 
-                processed = resize_crop_cv2(frame, width, height, cv2_module)
-                out_path = output_dir / f"{exported:0{digits}d}.jpeg"
-                ok = cv2_module.imwrite(str(out_path), processed, [cv2_module.IMWRITE_JPEG_QUALITY, quality])
-                if not ok:
-                    raise RuntimeError(f"無法寫入檔案: {out_path}")
-                exported += 1
+                    processed = resize_crop_cv2(frame, width, height, cv2_module)
+                    out_path = output_dir / f"{exported:0{digits}d}.jpeg"
+                    ok = cv2_module.imwrite(str(out_path), processed, [cv2_module.IMWRITE_JPEG_QUALITY, quality])
+                    if not ok:
+                        raise RuntimeError(f"無法寫入檔案: {out_path}")
+                    exported += 1
 
-                if exported == 1 or exported % 25 == 0:
-                    print(f"  已輸出 {exported} 幀...")
+                    if exported == 1 or exported % 25 == 0:
+                        print(f"  已輸出 {exported} 幀...")
+            else:
+                def _write_one(out_path: Path, frame, frame_index: int) -> int:
+                    processed = resize_crop_cv2(frame, width, height, cv2_module)
+                    ok = cv2_module.imwrite(
+                        str(out_path),
+                        processed,
+                        [cv2_module.IMWRITE_JPEG_QUALITY, quality],
+                    )
+                    if not ok:
+                        raise RuntimeError(f"無法寫入檔案: {out_path}")
+                    return int(frame_index)
+
+                pending = set()
+                completed = 0
+                submitted = 0
+                ram_budget_mb = self.prompt_int("可用 RAM (MB)", default=1024)
+                ram_budget_bytes = max(0, int(ram_budget_mb)) * 1024 * 1024
+
+                panel = ProgressPanel("Video Encode/Write (Parallel)", total_frames if total_frames > 0 else None, workers)
+                if sys.stdout.isatty():
+                    ConsoleUI.hide_cursor()
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    def submit_batch(batch: list[object], batch_indices: list[int]) -> None:
+                        nonlocal pending, completed, submitted
+                        iterator = iter(enumerate(batch_indices))
+                        while len(pending) < max_pending:
+                            try:
+                                pos, index = next(iterator)
+                            except StopIteration:
+                                break
+                            frame = batch[pos]
+                            out_path = output_dir / f"{index:0{digits}d}.jpeg"
+                            pending.add(executor.submit(_write_one, out_path, frame, index))
+                            batch[pos] = None
+                            submitted += 1
+                            panel.update(scheduled=submitted, pending=len(pending))
+
+                        while pending:
+                            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                            for item in done:
+                                pending.remove(item)
+                                frame_index = item.result()
+                                panel.complete_index(frame_index)
+                                completed += 1
+                                panel.update(scheduled=submitted, pending=len(pending))
+
+                                try:
+                                    pos, index = next(iterator)
+                                except StopIteration:
+                                    continue
+                                frame = batch[pos]
+                                out_path = output_dir / f"{index:0{digits}d}.jpeg"
+                                pending.add(executor.submit(_write_one, out_path, frame, index))
+                                batch[pos] = None
+                                submitted += 1
+                                panel.update(scheduled=submitted, pending=len(pending))
+
+                    batch: list[object] = []
+                    batch_indices: list[int] = []
+                    batch_bytes = 0
+                    while True:
+                        ok, frame = capture.read()
+                        if not ok:
+                            break
+
+                        frame_bytes = estimate_object_size(frame)
+                        if ram_budget_bytes > 0 and batch and batch_bytes + frame_bytes > ram_budget_bytes:
+                            submit_batch(batch, batch_indices)
+                            batch = []
+                            batch_indices = []
+                            batch_bytes = 0
+
+                        batch.append(frame)
+                        batch_indices.append(exported)
+                        batch_bytes += frame_bytes
+                        exported += 1
+
+                    if batch:
+                        submit_batch(batch, batch_indices)
+
+                    if pending:
+                        done, _ = wait(pending)
+                        for item in done:
+                            frame_index = item.result()
+                            panel.complete_index(frame_index)
+                            completed += 1
+                        panel.update(scheduled=submitted, pending=0)
         finally:
             capture.release()
+            if use_parallel and workers > 1 and sys.stdout.isatty():
+                ConsoleUI.show_cursor()
 
         if exported == 0:
             print("沒有匯出任何幀，已停止。")
@@ -467,23 +697,107 @@ class MCUMediaTool:
             return
         output_dir, jpk_path = paths
 
-        digits = frame_digits()
+        digits = frame_digits(len(source_files))
         exported = 0
+        use_parallel = self.prompt_yes_no("並行轉換 (加速批次處理)", default="y" if len(source_files) >= 20 else "n")
+        workers = 1
+        max_pending = 1
+        if use_parallel:
+            default_workers = min(os.cpu_count() or 4, 8)
+            workers = self.prompt_int("並行工作數", default=default_workers)
+            max_pending = self.prompt_int("每批排程張數", default=max(workers * 4, workers))
+            max_pending = max(max_pending, workers)
 
-        for file_path in source_files:
-            try:
-                with pil_image_module.open(file_path) as image:
-                    rgb = image.convert("RGB")
-                    processed = resize_crop_pil(rgb, width, height, pil_image_module)
-                    out_path = output_dir / f"{exported:0{digits}d}.jpeg"
-                    processed.save(out_path, format="JPEG", quality=quality, optimize=False)
-                    exported += 1
-            except Exception as exc:
-                print(f"  跳過 {file_path.name}: {exc}")
-                continue
+        if workers <= 1:
+            for file_path in source_files:
+                try:
+                    with pil_image_module.open(file_path) as image:
+                        rgb = image.convert("RGB")
+                        processed = resize_crop_pil(rgb, width, height, pil_image_module)
+                        out_path = output_dir / f"{exported:0{digits}d}.jpeg"
+                        processed.save(out_path, format="JPEG", quality=quality, optimize=False)
+                        exported += 1
+                except Exception as exc:
+                    print(f"  跳過 {file_path.name}: {exc}")
+                    continue
 
-            if exported == 1 or exported % 25 == 0:
-                print(f"  已輸出 {exported} 張...")
+                if exported == 1 or exported % 25 == 0:
+                    print(f"  已輸出 {exported} 張...")
+        else:
+            temp_paths: list[Path] = []
+            success: dict[int, Path] = {}
+
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                iterator = iter(enumerate(source_files))
+                pending: dict[object, tuple[int, Path, Path]] = {}
+                completed = 0
+                submitted = 0
+                panel = ProgressPanel("Photo Convert (Parallel)", len(source_files), workers)
+                if sys.stdout.isatty():
+                    ConsoleUI.hide_cursor()
+
+                while len(pending) < max_pending:
+                    try:
+                        index, file_path = next(iterator)
+                    except StopIteration:
+                        break
+                    temp_path = output_dir / f"tmp_{index:0{digits}d}.jpeg"
+                    temp_paths.append(temp_path)
+                    fut = executor.submit(
+                        convert_photo_one,
+                        str(file_path),
+                        str(temp_path),
+                        width,
+                        height,
+                        quality,
+                    )
+                    pending[fut] = (index, file_path, temp_path)
+                    submitted += 1
+                    panel.update(scheduled=submitted, pending=len(pending))
+
+                while pending:
+                    done, _ = wait(list(pending.keys()), return_when=FIRST_COMPLETED)
+                    for fut in done:
+                        index, file_path, temp_path = pending.pop(fut)
+                        ok, err = fut.result()
+                        if ok:
+                            success[index] = temp_path
+                        else:
+                            print(f"  跳過 {file_path.name}: {err}")
+                        completed += 1
+                        panel.complete_index(index)
+                        panel.update(scheduled=submitted, pending=len(pending))
+
+                        try:
+                            next_index, next_path = next(iterator)
+                        except StopIteration:
+                            continue
+                        next_temp = output_dir / f"tmp_{next_index:0{digits}d}.jpeg"
+                        temp_paths.append(next_temp)
+                        next_fut = executor.submit(
+                            convert_photo_one,
+                            str(next_path),
+                            str(next_temp),
+                            width,
+                            height,
+                            quality,
+                        )
+                        pending[next_fut] = (next_index, next_path, next_temp)
+                        submitted += 1
+                        panel.update(scheduled=submitted, pending=len(pending))
+            if sys.stdout.isatty():
+                ConsoleUI.show_cursor()
+
+            exported = 0
+            for idx in sorted(success):
+                src_path = success[idx]
+                final_path = output_dir / f"{exported:0{digits}d}.jpeg"
+                src_path.replace(final_path)
+                exported += 1
+
+            for path in temp_paths:
+                if path.exists() and path.name.startswith("tmp_"):
+                    path.unlink()
 
         if exported == 0:
             print("沒有成功輸出任何圖片。")
