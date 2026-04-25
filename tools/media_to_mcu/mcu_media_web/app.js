@@ -1,6 +1,7 @@
 import { buildJpk } from "./jpk.js";
 
 const $ = (id) => document.getElementById(id);
+const workerUrl = new URL("./worker.js", import.meta.url);
 
 const state = {
   files: [],
@@ -17,6 +18,10 @@ const state = {
   },
 };
 
+const ui = {
+  runText: null,
+};
+
 function setProgress(p) {
   const pct = Math.max(0, Math.min(100, p));
   $("barFill").style.width = pct + "%";
@@ -24,6 +29,27 @@ function setProgress(p) {
 
 function setResult(text) {
   $("result").textContent = text || "";
+}
+
+function setBusy(busy) {
+  const run = $("run");
+  const pickFiles = $("pickFiles");
+  const pickFolder = $("pickFolder");
+  const drop = $("drop");
+  if (ui.runText == null) ui.runText = run.textContent;
+  if (busy) {
+    run.textContent = "轉換中…";
+    pickFiles.disabled = true;
+    pickFolder.disabled = true;
+    drop.classList.add("drag");
+    document.body.style.cursor = "progress";
+  } else {
+    run.textContent = ui.runText;
+    pickFiles.disabled = false;
+    pickFolder.disabled = false;
+    drop.classList.remove("drag");
+    document.body.style.cursor = "";
+  }
 }
 
 function params() {
@@ -211,6 +237,26 @@ function drawToOutputCanvas(bmp, p) {
   return out;
 }
 
+function getWorkerCount() {
+  const n = navigator.hardwareConcurrency || 4;
+  return Math.max(1, Math.min(8, n - 1));
+}
+
+function processInWorker(worker, file, p) {
+  return new Promise((resolve, reject) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = (ev) => {
+      const msg = ev.data || {};
+      try {
+        channel.port1.close();
+      } catch {}
+      if (msg.ok && msg.buffer) resolve(msg.buffer);
+      else reject(new Error(msg.error || "Worker failed"));
+    };
+    worker.postMessage({ file, params: p, port: channel.port2 }, [channel.port2]);
+  });
+}
+
 function downloadBlob(blob, name) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -228,36 +274,61 @@ async function runImages() {
   $("run").disabled = true;
   $("downloadJpk").disabled = true;
   $("downloadAll").disabled = true;
+  setBusy(true);
 
   try {
     if (!state.imageFiles.length) throw new Error("沒有圖片可處理");
     const p = params();
-    const blobs = [];
-    for (let i = 0; i < state.imageFiles.length; i++) {
-      const file = state.imageFiles[i];
-      const bmp = await createImageBitmap(file);
-      const canvas = drawToOutputCanvas(bmp, p);
-      const jpeg = await canvas.convertToBlob({
-        type: "image/jpeg",
-        quality: p.quality / 100,
-      });
-      blobs.push(jpeg);
-      const pct = ((i + 1) / state.imageFiles.length) * 80;
-      setProgress(pct);
-    }
+    const workerCount = getWorkerCount();
+    const workers = Array.from({ length: workerCount }, () => new Worker(workerUrl, { type: "module" }));
+    const blobs = new Array(state.imageFiles.length);
+    let maxBytes = 0;
+    let next = 0;
+    let done = 0;
+    let failed = null;
+    const total = state.imageFiles.length;
+
+    setResult(`Working…\nCount: ${total}\nWorkers: ${workerCount}\nDone: 0/${total}`);
+
+    const runOneWorker = (worker) => (async () => {
+      while (true) {
+        const i = next++;
+        if (i >= total) break;
+        if (failed) break;
+        try {
+          const buffer = await processInWorker(worker, state.imageFiles[i], p);
+          blobs[i] = new Blob([buffer], { type: "image/jpeg" });
+          maxBytes = Math.max(maxBytes, buffer.byteLength);
+          done += 1;
+          setProgress((done / total) * 80);
+          setResult(`Working…\nCount: ${total}\nWorkers: ${workerCount}\nDone: ${done}/${total}`);
+        } catch (err) {
+          failed = err;
+          break;
+        }
+      }
+    })();
+
+    await Promise.all(workers.map((w) => runOneWorker(w)));
+    for (const w of workers) w.terminate();
+    if (failed) throw failed;
+
+    setProgress(85);
+    setResult(`Packing…\nCount: ${blobs.length}\nWorkers: ${workerCount}\nDone: ${done}/${total}`);
+
     state.jpegBlobs = blobs;
-    const maxBytes = Math.max(...(await Promise.all(blobs.map(async (b) => (await b.arrayBuffer()).byteLength))));
     const jpk = await buildJpk(blobs);
     state.jpkBlob = jpk;
     setProgress(100);
     $("downloadJpk").disabled = false;
     $("downloadAll").disabled = false;
-    setResult(`Mode: photo\nCount: ${blobs.length}\nMax JPEG bytes: ${maxBytes}\n\n可下載 output.jpk 或逐張 JPEG`);
+    setResult(`Mode: photo\nCount: ${blobs.length}\nWorkers: ${workerCount}\nMax JPEG bytes: ${maxBytes}\n\n可下載 output.jpk 或逐張 JPEG`);
   } catch (e) {
     setProgress(0);
     setResult(String(e && e.message ? e.message : e));
   } finally {
     $("run").disabled = state.imageFiles.length === 0;
+    setBusy(false);
   }
 }
 
@@ -325,4 +396,3 @@ window.addEventListener("mousemove", (e) => {
 });
 
 setPicked([]);
-

@@ -12,11 +12,11 @@ export async function buildJpk(jpegBlobs) {
   const parts = [];
   parts.push(new TextEncoder().encode("JPK1"));
 
-  const sizes = [];
+  const buffers = [];
   let maxSize = 0;
   for (const blob of jpegBlobs) {
     const buf = new Uint8Array(await blob.arrayBuffer());
-    sizes.push(buf.length);
+    buffers.push(buf);
     if (buf.length > maxSize) maxSize = buf.length;
   }
 
@@ -24,13 +24,11 @@ export async function buildJpk(jpegBlobs) {
   parts.push(uint32le(maxSize));
   parts.push(uint32le(0));
 
-  for (let i = 0; i < jpegBlobs.length; i++) {
-    const blob = jpegBlobs[i];
-    const buf = new Uint8Array(await blob.arrayBuffer());
+  for (let i = 0; i < buffers.length; i++) {
+    const buf = buffers[i];
     parts.push(uint32le(buf.length));
     parts.push(buf);
   }
 
   return new Blob(parts, { type: "application/octet-stream" });
 }
-
