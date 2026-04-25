@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import cgi
 import importlib
 import json
 import os
@@ -17,8 +16,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-STATIC_DIR = SCRIPT_DIR / "mcu_media_web"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+STATIC_DIR = Path(__file__).resolve().parent / "mcu_media_web"
 
 SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 SUPPORTED_VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".flv", ".wmv", ".m4v", ".webm"}
@@ -33,6 +35,40 @@ def import_optional(module_name: str):
         return importlib.import_module(module_name)
     except Exception:
         return None
+
+
+def dependency_status() -> dict[str, bool]:
+    return {
+        "Pillow": import_optional("PIL") is not None,
+        "opencv-python": import_optional("cv2") is not None,
+        "numpy": import_optional("numpy") is not None,
+    }
+
+
+def print_dependency_hints() -> None:
+    status = dependency_status()
+    missing = [name for name, ok in status.items() if not ok]
+    print("")
+    print("Python 依賴檢查：")
+    print("- mcu_media_gui（純前端 Web UI serve）不需要額外安裝套件（只用標準庫）。")
+    print("- mcu_media_tool（命令列轉換）若要支援影片/部分影像處理，建議安裝：Pillow、opencv-python、numpy。")
+    print("")
+    print("目前環境：")
+    for name, ok in status.items():
+        print(f"- {name}: {'OK' if ok else 'MISSING'}")
+    if missing:
+        pkgs = []
+        if not status["Pillow"]:
+            pkgs.append("pillow")
+        if not status["opencv-python"]:
+            pkgs.append("opencv-python")
+        if not status["numpy"]:
+            pkgs.append("numpy")
+        print("")
+        print("安裝指令：")
+        print("python3 -m pip install --upgrade pip")
+        print("python3 -m pip install " + " ".join(pkgs))
+    print("")
 
 
 def frame_digits(total: int | None = None) -> int:
@@ -89,20 +125,6 @@ def build_jpk(jpeg_dir: Path, jpk_path: Path) -> tuple[int, int]:
     return len(jpeg_files), max_size
 
 
-def check_dependencies() -> None:
-    missing: list[str] = []
-    if import_optional("PIL.Image") is None:
-        missing.append("Pillow")
-    if import_optional("cv2") is None:
-        missing.append("opencv-python")
-    if not missing:
-        print("依賴檢查：OK（可用 Python 後端轉換；也可純前端 JS）")
-        return
-    print("依賴檢查：目前是純前端 JS 流程，不需要安裝 Pillow / opencv-python")
-    print("如果要啟用 Python 後端轉換（/api/convert），才需要安裝：" + "、".join(missing))
-    print("建議安裝：python3 -m pip install " + " ".join(missing))
-
-
 INDEX_HTML = """<!doctype html>
 <html lang="zh-Hant">
   <head>
@@ -111,187 +133,25 @@ INDEX_HTML = """<!doctype html>
     <title>MCU Media GUI</title>
     <style>
       body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans";margin:24px;background:#0b0f14;color:#e6edf3}
-      .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
-      .card{background:#111826;border:1px solid #1f2a3a;border-radius:10px;padding:16px;min-width:320px;flex:1}
-      h1{font-size:18px;margin:0 0 12px 0}
-      label{display:block;font-size:12px;color:#9fb0c0;margin:10px 0 6px}
-      input,select,button{font-size:14px}
-      input,select{width:100%;padding:10px;border-radius:8px;border:1px solid #223146;background:#0b1220;color:#e6edf3}
-      button{padding:10px 12px;border-radius:8px;border:1px solid #2a3b52;background:#1a2a44;color:#e6edf3;cursor:pointer}
-      button:disabled{opacity:.5;cursor:not-allowed}
-      .drop{border:2px dashed #2a3b52;border-radius:10px;padding:16px;text-align:center;color:#9fb0c0}
-      .drop.drag{border-color:#6aa6ff;color:#cfe2ff}
-      .muted{color:#9fb0c0;font-size:12px;line-height:1.4}
-      .kv{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;white-space:pre-wrap}
-      .bar{height:10px;background:#0b1220;border:1px solid #223146;border-radius:999px;overflow:hidden}
-      .bar > div{height:100%;background:#6aa6ff;width:0%}
+      .card{max-width:880px;margin:0 auto;background:#111826;border:1px solid #1f2a3a;border-radius:12px;padding:18px}
+      h1{font-size:18px;margin:0 0 10px 0}
+      .muted{color:#9fb0c0;font-size:12px;line-height:1.5}
+      .kv{margin-top:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;white-space:pre-wrap;color:#cfe2ff}
       a{color:#9ad0ff}
     </style>
   </head>
   <body>
-    <h1>MCU Media GUI</h1>
-    <div class="row">
-      <div class="card">
-        <div id="drop" class="drop">
-          拖入影片檔或圖片（可多選）。<br />
-          圖片資料夾請用「選擇資料夾」。
-        </div>
-        <div style="height:10px"></div>
-        <div class="row" style="gap:10px">
-          <button id="pickFiles">選擇檔案</button>
-          <button id="pickFolder">選擇資料夾</button>
-          <input id="fileInput" type="file" multiple style="display:none" />
-          <input id="folderInput" type="file" webkitdirectory multiple style="display:none" />
-        </div>
-        <div style="height:10px"></div>
-        <div class="muted">已選擇：<span id="pickedCount">0</span></div>
-        <div style="height:10px"></div>
-        <div class="bar"><div id="barFill"></div></div>
-        <div style="height:10px"></div>
-        <button id="run" disabled>開始轉換</button>
-        <div style="height:12px"></div>
-        <div id="result" class="kv"></div>
+    <div class="card">
+      <h1>MCU Media GUI</h1>
+      <div class="muted">
+        找不到前端檔案（mcu_media_web）。此頁面是無依賴的 fallback，只用來提示你如何恢復 GUI。
       </div>
-
-      <div class="card">
-        <div class="muted">參數</div>
-        <label>裁切/縮放模式</label>
-        <select id="cropMode">
-          <option value="cover">中心裁切 (Cover)</option>
-          <option value="contain">等比例縮放 + 補邊 (Contain)</option>
-        </select>
-
-        <label>輸出寬度</label>
-        <input id="width" type="number" value="160" min="1" />
-        <label>輸出高度</label>
-        <input id="height" type="number" value="160" min="1" />
-
-        <label>旋轉</label>
-        <select id="rotate">
-          <option value="0">0°</option>
-          <option value="90">90°</option>
-          <option value="180">180°</option>
-          <option value="270">270°</option>
-        </select>
-
-        <label>對比度 (1.0 = 不變)</label>
-        <input id="contrast" type="number" value="1.0" step="0.05" min="0.1" />
-
-        <label>JPEG 品質</label>
-        <input id="quality" type="number" value="85" min="1" max="100" />
-
-        <label>並行工作數</label>
-        <input id="workers" type="number" value="8" min="1" />
-        <label>每批排程幀數/張數</label>
-        <input id="maxPending" type="number" value="32" min="1" />
-
-        <label>可用 RAM (MB)</label>
-        <input id="ramMb" type="number" value="1024" min="0" />
-
-        <div style="height:10px"></div>
-        <div class="muted">輸出：提供 output.jpk 與 output.zip 下載（zip 內含 JPEG + JPK）。</div>
-      </div>
+      <div class="kv">請確認以下其一：
+1) 將資料夾 mcu_media_web 放在 mcu_media_gui.py 同一層（含 index.html / app.js）
+2) 改用 mcu_media_tool.py 直接做轉換（GUI 暫時不可用時）</div>
     </div>
-    <script src="/app.js"></script>
   </body>
 </html>
-"""
-
-
-APP_JS = """const $ = (id) => document.getElementById(id);
-
-let files = [];
-
-function setPicked(newFiles) {
-  files = newFiles;
-  $("pickedCount").textContent = String(files.length);
-  $("run").disabled = files.length === 0;
-}
-
-function addFiles(list) {
-  const next = files.concat(Array.from(list));
-  setPicked(next);
-}
-
-function resetProgress() {
-  $("barFill").style.width = "0%";
-  $("result").textContent = "";
-}
-
-function setProgress(p) {
-  const pct = Math.max(0, Math.min(100, p));
-  $("barFill").style.width = pct + "%";
-}
-
-function params() {
-  return {
-    crop_mode: $("cropMode").value,
-    width: $("width").value,
-    height: $("height").value,
-    rotate: $("rotate").value,
-    contrast: $("contrast").value,
-    quality: $("quality").value,
-    workers: $("workers").value,
-    max_pending: $("maxPending").value,
-    ram_mb: $("ramMb").value,
-  };
-}
-
-async function run() {
-  resetProgress();
-  setProgress(5);
-  $("run").disabled = true;
-
-  const form = new FormData();
-  const p = params();
-  Object.keys(p).forEach((k) => form.append(k, p[k]));
-  files.forEach((f) => form.append("files", f, f.webkitRelativePath || f.name));
-
-  try {
-    const res = await fetch("/api/convert", { method: "POST", body: form });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || ("HTTP " + res.status));
-    }
-    setProgress(90);
-    const data = await res.json();
-    const lines = [];
-    lines.push("Mode: " + data.mode);
-    lines.push("Count: " + data.count);
-    lines.push("Max JPEG bytes: " + data.max_jpeg_bytes);
-    lines.push("");
-    lines.push("Download:");
-    lines.push("  - " + data.jpk_url);
-    lines.push("  - " + data.zip_url);
-    $("result").textContent = lines.join("\\n");
-    setProgress(100);
-  } catch (e) {
-    $("result").textContent = String(e && e.message ? e.message : e);
-    setProgress(0);
-  } finally {
-    $("run").disabled = files.length === 0;
-  }
-}
-
-$("run").addEventListener("click", run);
-
-$("pickFiles").addEventListener("click", () => $("fileInput").click());
-$("pickFolder").addEventListener("click", () => $("folderInput").click());
-
-$("fileInput").addEventListener("change", (e) => setPicked(Array.from(e.target.files || [])));
-$("folderInput").addEventListener("change", (e) => setPicked(Array.from(e.target.files || [])));
-
-const drop = $("drop");
-drop.addEventListener("dragover", (e) => {
-  e.preventDefault();
-  drop.classList.add("drag");
-});
-drop.addEventListener("dragleave", () => drop.classList.remove("drag"));
-drop.addEventListener("drop", (e) => {
-  e.preventDefault();
-  drop.classList.remove("drag");
-  if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files);
-});
 """
 
 
@@ -607,7 +467,7 @@ class JobStore:
                 continue
 
 
-JOBS = JobStore(SCRIPT_DIR / ".mcu_media_gui_jobs")
+JOBS = JobStore(PROJECT_ROOT / ".mcu_media_gui_jobs")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -618,10 +478,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/":
-            rel = "index.html"
-        else:
-            rel = self.path.lstrip("/")
-
+            index_path = STATIC_DIR / "index.html"
+            if index_path.exists():
+                data = index_path.read_text(encoding="utf-8")
+                _text(self, HTTPStatus.OK, data, content_type="text/html")
+            else:
+                _text(self, HTTPStatus.OK, INDEX_HTML, content_type="text/html")
+            return
+        if self.path == "/app.js":
+            app_path = STATIC_DIR / "app.js"
+            if app_path.exists():
+                data = app_path.read_text(encoding="utf-8")
+                _text(self, HTTPStatus.OK, data, content_type="application/javascript")
+            else:
+                _text(self, HTTPStatus.NOT_FOUND, "Not found")
+            return
         if self.path.startswith("/download/"):
             parts = self.path.split("/")
             if len(parts) != 4:
@@ -638,84 +509,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _send_file(self, target, name)
             return
-
-        if not rel or ".." in rel or rel.startswith("/"):
-            _text(self, HTTPStatus.BAD_REQUEST, "Bad request")
-            return
-
-        target = (STATIC_DIR / rel).resolve()
-        root = STATIC_DIR.resolve()
-        if target.is_dir():
-            _text(self, HTTPStatus.NOT_FOUND, "Not found")
-            return
-        if root != target and root not in target.parents:
-            _text(self, HTTPStatus.BAD_REQUEST, "Bad request")
-            return
-
-        if target.exists():
-            suffix = target.suffix.lower()
-            if suffix in {".html", ".htm"}:
-                _text(self, HTTPStatus.OK, target.read_text(encoding="utf-8"), content_type="text/html")
-                return
-            if suffix == ".js":
-                _text(self, HTTPStatus.OK, target.read_text(encoding="utf-8"), content_type="application/javascript")
-                return
-            if suffix == ".css":
-                _text(self, HTTPStatus.OK, target.read_text(encoding="utf-8"), content_type="text/css")
-                return
-            data = target.read_bytes()
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-            return
-
-        if rel == "index.html":
-            _text(self, HTTPStatus.OK, INDEX_HTML, content_type="text/html")
-            return
-        if rel == "app.js":
-            _text(self, HTTPStatus.OK, APP_JS, content_type="application/javascript")
-            return
         _text(self, HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self):
-        if self.path != "/api/convert":
-            _text(self, HTTPStatus.NOT_FOUND, "Not found")
-            return
-
-        JOBS.cleanup()
-
-        ctype = self.headers.get("Content-Type", "")
-        if "multipart/form-data" not in ctype:
-            _text(self, HTTPStatus.BAD_REQUEST, "Expected multipart/form-data")
-            return
-
-        form = cgi.FieldStorage(
-            fp=self.rfile,
-            headers=self.headers,
-            environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": ctype},
-        )
-
-        width = max(1, _int(form.getfirst("width", "160"), 160))
-        height = max(1, _int(form.getfirst("height", "160"), 160))
-        quality = min(100, max(1, _int(form.getfirst("quality", "85"), 85)))
-        rotate = _rotation_angle(form.getfirst("rotate", "0"))
-        contrast = max(0.1, _float(form.getfirst("contrast", "1.0"), 1.0))
-        crop_mode = form.getfirst("crop_mode", "cover")
-        workers = max(1, _int(form.getfirst("workers", "8"), 8))
-        max_pending = max(1, _int(form.getfirst("max_pending", "32"), 32))
-        ram_mb = max(0, _int(form.getfirst("ram_mb", "1024"), 1024))
-
-        upload_items = form["files"] if "files" in form else []
-        if not isinstance(upload_items, list):
-            upload_items = [upload_items]
-
-        if not upload_items:
-            _text(self, HTTPStatus.BAD_REQUEST, "No files")
-            return
-
-        job_id, job_dir = JOBS.create()
+        _text(self, HTTPStatus.NOT_FOUND, "Not found")
+        return
         input_dir = job_dir / "input"
         output_dir = job_dir / "output"
         input_dir.mkdir(parents=True, exist_ok=True)
@@ -805,7 +603,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    check_dependencies()
     host = "127.0.0.1"
     port = int(os.environ.get("MCU_MEDIA_GUI_PORT", "8765"))
     try:
@@ -814,6 +611,7 @@ def main() -> int:
         httpd = ThreadingHTTPServer((host, 0), Handler)
     actual_port = httpd.server_address[1]
     url = f"http://{host}:{actual_port}/"
+    print_dependency_hints()
     print(url)
     httpd.serve_forever()
     return 0

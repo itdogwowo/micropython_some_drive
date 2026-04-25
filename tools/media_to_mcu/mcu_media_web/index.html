@@ -3,100 +3,226 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MCU Media Web</title>
+    <title>MCU Media GUI</title>
     <style>
-      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans";margin:24px;background:#0b0f14;color:#e6edf3}
-      .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
-      .card{background:#111826;border:1px solid #1f2a3a;border-radius:10px;padding:16px;min-width:320px;flex:1}
-      h1{font-size:18px;margin:0 0 12px 0}
+      :root{--panel-w:1320px}
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans";margin:16px;background:#0b0f14;color:#e6edf3}
+      .row{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+      .card{background:#111826;border:1px solid #1f2a3a;border-radius:10px;padding:16px;flex:1 1 320px;min-width:0}
+      h1{font-size:18px;margin:0 auto 12px auto;max-width:var(--panel-w)}
+      h2{font-size:14px;margin:0 0 10px 0;color:#cfe2ff}
       label{display:block;font-size:12px;color:#9fb0c0;margin:10px 0 6px}
       input,select,button{font-size:14px}
       input,select{width:100%;padding:10px;border-radius:8px;border:1px solid #223146;background:#0b1220;color:#e6edf3}
+      input[type="range"]{padding:0;border:0;background:transparent}
       button{padding:10px 12px;border-radius:8px;border:1px solid #2a3b52;background:#1a2a44;color:#e6edf3;cursor:pointer}
       button:disabled{opacity:.5;cursor:not-allowed}
       .drop{border:2px dashed #2a3b52;border-radius:10px;padding:16px;text-align:center;color:#9fb0c0}
       .drop.drag{border-color:#6aa6ff;color:#cfe2ff}
       .muted{color:#9fb0c0;font-size:12px;line-height:1.4}
       .kv{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;white-space:pre-wrap}
-      canvas{max-width:100%;background:#0b1220;border:1px solid #223146;border-radius:10px}
       .bar{height:10px;background:#0b1220;border:1px solid #223146;border-radius:999px;overflow:hidden}
       .bar > div{height:100%;background:#6aa6ff;width:0%}
-      a{color:#9ad0ff}
-      .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      .pill{display:inline-block;padding:4px 8px;border:1px solid #223146;border-radius:999px;background:#0b1220;color:#9fb0c0;font-size:12px}
+
+      .panel{max-width:var(--panel-w);margin:0 auto}
+      .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:start;max-width:var(--panel-w);margin:16px auto 0 auto}
+      .mediaBox{background:#0b1220;border:1px solid #223146;border-radius:10px;overflow:hidden;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center}
+      .mediaBox video,.mediaBox img,.mediaBox canvas{width:100%;height:100%;object-fit:contain;display:block}
+      .twoCol{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+      .scrub{display:flex;gap:10px;align-items:center}
+      .scrub input[type="range"]{flex:1}
+      #scrubLabel{min-width:68px;text-align:center}
+      .scrubMeta{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+      .scrubMeta .line{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;color:#9fb0c0;line-height:1.35}
+      .scrubMeta .line:empty{display:none}
+      .rangeRow{display:flex;gap:10px;align-items:center}
+      .rangeRow input[type="range"]{flex:1}
+      .rangeRow input[type="number"]{width:92px}
+      .rangeWrap{flex-wrap:wrap;align-items:flex-start}
+      .rangeAside{display:flex;flex-direction:column;gap:8px;flex:0 1 260px;min-width:220px}
+      .rangeStack{position:relative;height:34px;--thumb:18px;--thumb-r:9px;--track:10px}
+      .rangeTrack{position:absolute;left:var(--thumb-r);right:var(--thumb-r);top:50%;transform:translateY(-50%);height:var(--track);border-radius:999px;background:#223146;border:1px solid #223146;box-sizing:border-box}
+      .rangeStack input[type="range"]{position:absolute;inset:0;height:34px;margin:0;padding:0;border:0;background:transparent;pointer-events:none;-webkit-appearance:none;appearance:none;box-sizing:border-box}
+      .rangeStack input[type="range"]::-webkit-slider-runnable-track{height:var(--track);background:transparent}
+      .rangeStack input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:var(--thumb);height:var(--thumb);border-radius:999px;background:#e6edf3;border:2px solid #6aa6ff;pointer-events:auto;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+      .rangeStack input[type="range"]::-moz-range-track{height:10px;background:transparent}
+      .rangeStack input[type="range"]::-moz-range-thumb{width:var(--thumb);height:var(--thumb);border-radius:999px;background:#e6edf3;border:2px solid #6aa6ff;pointer-events:auto;cursor:pointer}
+      .rangeStack input[type="range"]::-webkit-slider-thumb{margin-top:calc((var(--track) - var(--thumb)) / 2)}
+      .thumbTip{position:absolute;top:-112px;left:0;width:168px;padding:8px;background:#0b1220;border:1px solid #223146;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.35);display:none;pointer-events:none;box-sizing:border-box}
+      .thumbTip.show{display:block}
+      .thumbTip canvas{width:152px;height:86px;display:block;border-radius:8px;background:#000}
+      .thumbTip .t{margin-top:6px;color:#9fb0c0;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .thumbTip:after{content:"";position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:7px solid #223146}
+
+      @media (max-width:720px){
+        .rangeAside{flex:1 1 100%;min-width:0}
+      }
+      @media (max-width:480px){
+        body{margin:12px}
+      }
     </style>
   </head>
   <body>
-    <h1>MCU Media Web（純 HTML/JS）</h1>
-    <div class="row">
+    <h1>MCU Media GUI</h1>
+
+    <div class="card panel">
+      <div id="drop" class="drop">
+        拖入影片檔（MP4/WebM）或圖片／JPEG.zip／output.jpk（可多選）。<br />
+        圖片資料夾請用「選擇資料夾」。
+      </div>
+      <div style="height:10px"></div>
+      <div class="row" style="gap:10px">
+        <button id="pickFiles">選擇檔案</button>
+        <button id="pickFolder">選擇資料夾</button>
+        <input id="fileInput" type="file" multiple style="display:none" />
+        <input id="folderInput" type="file" webkitdirectory multiple style="display:none" />
+        <span class="muted">已選擇：<span id="pickedCount">0</span>　有效圖片：<span id="pickedImages">0</span>　忽略：<span id="pickedIgnored">0</span></span>
+        <span class="pill" id="mode">—</span>
+        <span class="muted" id="pickStatus"></span>
+      </div>
+      <div style="height:10px"></div>
+      <div class="twoCol">
+        <div>
+          <label>裁切/縮放模式</label>
+          <select id="cropMode">
+            <option value="cover">中心裁切 (Cover)</option>
+            <option value="contain">等比例縮放 + 補邊 (Contain)</option>
+          </select>
+        </div>
+        <div>
+          <label>旋轉</label>
+          <select id="rotate">
+            <option value="0">0°</option>
+            <option value="90">90°</option>
+            <option value="180">180°</option>
+            <option value="270">270°</option>
+          </select>
+        </div>
+      </div>
+      <div style="height:10px"></div>
+      <div class="twoCol">
+        <div>
+          <label>輸出寬度</label>
+          <div class="rangeRow">
+            <input id="width" type="range" value="240" min="1" max="512" step="1" />
+            <input id="widthNum" type="number" value="240" min="1" max="512" step="1" />
+          </div>
+        </div>
+        <div>
+          <label>輸出高度</label>
+          <div class="rangeRow">
+            <input id="height" type="range" value="240" min="1" max="512" step="1" />
+            <input id="heightNum" type="number" value="240" min="1" max="512" step="1" />
+          </div>
+        </div>
+        <div>
+          <label>對比度 (1.0 = 不變)</label>
+          <div class="rangeRow">
+            <input id="contrast" type="range" value="1.0" min="0.1" max="3.0" step="0.05" />
+            <input id="contrastNum" type="number" value="1.0" min="0.1" max="3.0" step="0.05" />
+          </div>
+        </div>
+        <div>
+          <label>JPEG 品質</label>
+          <div class="rangeRow">
+            <input id="quality" type="range" value="100" min="1" max="100" step="1" />
+            <input id="qualityNum" type="number" value="100" min="1" max="100" step="1" />
+          </div>
+        </div>
+        <div>
+          <label>Input FPS</label>
+          <div class="rangeRow">
+            <input id="inputFps" type="range" value="30" min="1" max="120" step="1" />
+            <input id="inputFpsNum" type="number" value="30" min="1" max="120" step="1" />
+          </div>
+          <div class="muted" id="fpsInfo">Video: —　Photo: 30（可調）</div>
+        </div>
+        <div>
+          <label>Output 抽幀（每 N 幀取 1 幀）</label>
+          <div class="rangeRow">
+            <input id="frameStep" type="range" value="1" min="1" max="60" step="1" />
+            <input id="frameStepNum" type="number" value="1" min="1" max="60" step="1" />
+          </div>
+          <div class="muted" id="fpsOutInfo">Output FPS: —</div>
+        </div>
+        <div style="grid-column:1 / -1">
+          <label>範圍（拖動選擇起迄）</label>
+          <div class="rangeRow rangeWrap" style="gap:12px">
+            <div style="flex:1">
+              <div class="rangeStack">
+                <div id="videoRangeTrack" class="rangeTrack"></div>
+                <input id="videoStartRange" type="range" min="0" max="0" value="0" step="1" disabled />
+                <input id="videoEndRange" type="range" min="0" max="0" value="0" step="1" disabled />
+                <div id="videoThumbTip" class="thumbTip">
+                  <canvas id="videoThumbCanvas" width="304" height="172"></canvas>
+                  <div id="videoThumbText" class="t">—</div>
+                </div>
+              </div>
+              <div class="muted" id="videoRangeHint">請先載入影片以啟用範圍拖動</div>
+            </div>
+            <div class="rangeAside">
+              <div class="rangeRow" style="gap:8px">
+                <input id="videoStartFrame" type="number" value="0" min="0" step="1" />
+                <div class="pill">Start frame</div>
+              </div>
+              <div class="rangeRow" style="gap:8px">
+                <input id="videoEndFrame" type="number" value="0" min="0" step="1" />
+                <div class="pill">End(0=尾)</div>
+              </div>
+              <div class="muted" id="videoDur">Frames: —</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="height:10px"></div>
+      <div class="muted">Preview 全部由瀏覽器端 JS 即時處理，mcu_media_gui 只負責提供頁面。</div>
+    </div>
+
+    <div class="grid2">
       <div class="card">
-        <div id="drop" class="drop">
-          拖入圖片檔或圖片資料夾（建議）。<br />
-          影片支援會依瀏覽器能力提供（後續可加 WebCodecs/ffmpeg.wasm）。
+        <h2>Before（來源）</h2>
+        <div class="mediaBox">
+          <video id="srcVideo" controls playsinline style="display:none"></video>
+          <img id="srcImg" alt="" style="display:none" />
+          <div id="srcHint" class="muted">請選擇檔案</div>
         </div>
-        <div style="height:10px"></div>
-        <div class="row" style="gap:10px">
-          <button id="pickFiles">選擇檔案</button>
-          <button id="pickFolder">選擇資料夾</button>
-          <input id="fileInput" type="file" multiple accept="image/*,video/*" style="display:none" />
-          <input id="folderInput" type="file" webkitdirectory multiple accept="image/*" style="display:none" />
-        </div>
-        <div style="height:10px"></div>
-        <div class="muted">已選擇：<span id="pickedCount">0</span></div>
-        <div style="height:10px"></div>
-        <div class="bar"><div id="barFill"></div></div>
-        <div style="height:10px"></div>
-        <button id="run" disabled>開始轉換（圖片）</button>
-        <div style="height:12px"></div>
-        <button id="downloadJpk" disabled>下載 output.jpk</button>
-        <button id="downloadAll" disabled>下載全部 JPEG（多檔）</button>
-        <div style="height:12px"></div>
-        <div id="result" class="kv"></div>
       </div>
 
       <div class="card">
-        <div class="muted">預覽與裁切（拖曳框選，滑鼠滾輪縮放）</div>
-        <div style="height:10px"></div>
-        <canvas id="preview" width="480" height="360"></canvas>
-        <div style="height:10px"></div>
-        <div class="grid">
-          <div>
-            <label>裁切/縮放模式</label>
-            <select id="cropMode">
-              <option value="cover">中心裁切 (Cover)</option>
-              <option value="contain">等比例縮放 + 補邊 (Contain)</option>
-            </select>
-          </div>
-          <div>
-            <label>旋轉</label>
-            <select id="rotate">
-              <option value="0">0°</option>
-              <option value="90">90°</option>
-              <option value="180">180°</option>
-              <option value="270">270°</option>
-            </select>
-          </div>
-          <div>
-            <label>輸出寬度</label>
-            <input id="width" type="number" value="160" min="1" />
-          </div>
-          <div>
-            <label>輸出高度</label>
-            <input id="height" type="number" value="160" min="1" />
-          </div>
-          <div>
-            <label>對比度 (1.0 = 不變)</label>
-            <input id="contrast" type="number" value="1.0" step="0.05" min="0.1" />
-          </div>
-          <div>
-            <label>JPEG 品質</label>
-            <input id="quality" type="number" value="85" min="1" max="100" />
-          </div>
+        <h2>After（處理後，跟隨同一進度）</h2>
+        <div class="mediaBox">
+          <canvas id="dstCanvas"></canvas>
         </div>
-        <div style="height:10px"></div>
-        <div class="muted">提示：在 file:// 模式下瀏覽器對「資料夾儲存」有限制；目前提供下載 output.jpk 與多檔 JPEG。</div>
       </div>
     </div>
-    <script type="module" src="./app.js"></script>
+
+    <div style="height:12px"></div>
+    <div class="card panel">
+      <div class="scrub">
+        <div class="pill" id="scrubLabel">Progress</div>
+        <input id="scrub" type="range" min="0" max="100" value="0" step="1" />
+        <button id="togglePlay" disabled>播放</button>
+      </div>
+      <div class="scrubMeta" aria-live="polite">
+        <div class="line" id="scrubLine1"></div>
+        <div class="line" id="scrubLine2"></div>
+      </div>
+      <div class="muted" style="margin-top:8px">同一個拖動條同時控制 Before/After；影片會 seek，圖片序列會切換張數。</div>
+    </div>
+
+    <div style="height:12px"></div>
+    <div class="card panel">
+      <div class="bar"><div id="barFill"></div></div>
+      <div style="height:10px"></div>
+      <div class="row" style="gap:10px">
+        <button id="run" disabled>開始轉換</button>
+        <button id="downloadJpk" disabled>下載 output.jpk</button>
+        <button id="downloadAll" disabled>下載 JPEG.zip</button>
+      </div>
+      <div style="height:12px"></div>
+      <div id="result" class="kv"></div>
+    </div>
+    <script src="/app.js"></script>
   </body>
 </html>
-
