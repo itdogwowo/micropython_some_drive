@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MCU Media Web</title>
+    <style>
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans";margin:24px;background:#0b0f14;color:#e6edf3}
+      .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+      .card{background:#111826;border:1px solid #1f2a3a;border-radius:10px;padding:16px;min-width:320px;flex:1}
+      h1{font-size:18px;margin:0 0 12px 0}
+      label{display:block;font-size:12px;color:#9fb0c0;margin:10px 0 6px}
+      input,select,button{font-size:14px}
+      input,select{width:100%;padding:10px;border-radius:8px;border:1px solid #223146;background:#0b1220;color:#e6edf3}
+      button{padding:10px 12px;border-radius:8px;border:1px solid #2a3b52;background:#1a2a44;color:#e6edf3;cursor:pointer}
+      button:disabled{opacity:.5;cursor:not-allowed}
+      .drop{border:2px dashed #2a3b52;border-radius:10px;padding:16px;text-align:center;color:#9fb0c0}
+      .drop.drag{border-color:#6aa6ff;color:#cfe2ff}
+      .muted{color:#9fb0c0;font-size:12px;line-height:1.4}
+      .kv{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;white-space:pre-wrap}
+      canvas{max-width:100%;background:#0b1220;border:1px solid #223146;border-radius:10px}
+      .bar{height:10px;background:#0b1220;border:1px solid #223146;border-radius:999px;overflow:hidden}
+      .bar > div{height:100%;background:#6aa6ff;width:0%}
+      a{color:#9ad0ff}
+      .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    </style>
+  </head>
+  <body>
+    <h1>MCU Media Web（純 HTML/JS）</h1>
+    <div class="row">
+      <div class="card">
+        <div id="drop" class="drop">
+          拖入圖片檔或圖片資料夾（建議）。<br />
+          影片支援會依瀏覽器能力提供（後續可加 WebCodecs/ffmpeg.wasm）。
+        </div>
+        <div style="height:10px"></div>
+        <div class="row" style="gap:10px">
+          <button id="pickFiles">選擇檔案</button>
+          <button id="pickFolder">選擇資料夾</button>
+          <input id="fileInput" type="file" multiple accept="image/*,video/*" style="display:none" />
+          <input id="folderInput" type="file" webkitdirectory multiple accept="image/*" style="display:none" />
+        </div>
+        <div style="height:10px"></div>
+        <div class="muted">已選擇：<span id="pickedCount">0</span></div>
+        <div style="height:10px"></div>
+        <div class="bar"><div id="barFill"></div></div>
+        <div style="height:10px"></div>
+        <button id="run" disabled>開始轉換（圖片）</button>
+        <div style="height:12px"></div>
+        <button id="downloadJpk" disabled>下載 output.jpk</button>
+        <button id="downloadAll" disabled>下載全部 JPEG（多檔）</button>
+        <div style="height:12px"></div>
+        <div id="result" class="kv"></div>
+      </div>
+
+      <div class="card">
+        <div class="muted">預覽與裁切（拖曳框選，滑鼠滾輪縮放）</div>
+        <div style="height:10px"></div>
+        <canvas id="preview" width="480" height="360"></canvas>
+        <div style="height:10px"></div>
+        <div class="grid">
+          <div>
+            <label>裁切/縮放模式</label>
+            <select id="cropMode">
+              <option value="cover">中心裁切 (Cover)</option>
+              <option value="contain">等比例縮放 + 補邊 (Contain)</option>
+            </select>
+          </div>
+          <div>
+            <label>旋轉</label>
+            <select id="rotate">
+              <option value="0">0°</option>
+              <option value="90">90°</option>
+              <option value="180">180°</option>
+              <option value="270">270°</option>
+            </select>
+          </div>
+          <div>
+            <label>輸出寬度</label>
+            <input id="width" type="number" value="160" min="1" />
+          </div>
+          <div>
+            <label>輸出高度</label>
+            <input id="height" type="number" value="160" min="1" />
+          </div>
+          <div>
+            <label>對比度 (1.0 = 不變)</label>
+            <input id="contrast" type="number" value="1.0" step="0.05" min="0.1" />
+          </div>
+          <div>
+            <label>JPEG 品質</label>
+            <input id="quality" type="number" value="85" min="1" max="100" />
+          </div>
+        </div>
+        <div style="height:10px"></div>
+        <div class="muted">提示：在 file:// 模式下瀏覽器對「資料夾儲存」有限制；目前提供下載 output.jpk 與多檔 JPEG。</div>
+      </div>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
+
