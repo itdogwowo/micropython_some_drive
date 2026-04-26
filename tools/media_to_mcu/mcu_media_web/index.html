@@ -27,8 +27,9 @@
 
       .panel{max-width:var(--panel-w);margin:0 auto}
       .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:start;max-width:var(--panel-w);margin:16px auto 0 auto}
-      .mediaBox{background:#0b1220;border:1px solid #223146;border-radius:10px;overflow:hidden;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center}
+      .mediaBox{background:#0b1220;border:1px solid #223146;border-radius:10px;overflow:hidden;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;position:relative}
       .mediaBox video,.mediaBox img,.mediaBox canvas{width:100%;height:100%;object-fit:contain;display:block}
+      #srcCanvas{position:absolute;top:10px;right:10px;width:240px;height:135px;max-width:45%;max-height:45%;border:1px solid #223146;border-radius:8px;pointer-events:none;box-shadow:0 10px 24px rgba(0,0,0,.35);z-index:2}
       .twoCol{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
       .scrub{display:flex;gap:10px;align-items:center}
       .scrub input[type="range"]{flex:1}
@@ -192,6 +193,7 @@
         <h2>Before（來源）</h2>
         <div class="mediaBox">
           <video id="srcVideo" controls playsinline style="display:none"></video>
+          <canvas id="srcCanvas" style="display:none"></canvas>
           <img id="srcImg" alt="" style="display:none" />
           <div id="srcHint" class="muted">請選擇檔案</div>
         </div>
@@ -231,6 +233,6 @@
       <div style="height:12px"></div>
       <div id="result" class="kv"></div>
     </div>
-    <script src="/app.js"></script>
+    <script src="/app.js?v=5"></script>
   </body>
 </html>

@@ -8,7 +8,6 @@
     "rotation": 0,
     "color_order": "RGB",
     "invert": true,
-    "write_chunk": 32768,
     "spi": {
       "id": 1,
       "baudrate": 80000000,

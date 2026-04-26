@@ -17,6 +17,7 @@ let isPlaying = false;
 let slideshowTimer = 0;
 let _thumbVideo = null;
 let _thumbSeq = 0;
+let _previewSeq = 0;
 let _thumbLastFrame = -1;
 let _thumbHideTimer = 0;
 let _videoDetectedFps = 0;
@@ -27,6 +28,13 @@ let _rangeReset = true;
 let _convertVideoT = 0;
 let _convertVideoFrame = 0;
 let _photoWorkerUrl = null;
+let _previewPending = null;
+let _previewRaf = 0;
+let _lastPreviewSyncT = -1;
+let _lastPreviewSyncAt = 0;
+let _afterPreviewSeq = 0;
+let _convertPreviewPct = -1;
+let _convertPreviewAt = 0;
 
 const PHOTO_WORKER_CODE = `self.onmessage = async (e) => {
   const d = e.data || {};
@@ -1104,6 +1112,11 @@ function clearSrc() {
   hideThumbTipNow();
   _thumbLastFrame = -1;
   _thumbSeq++;
+  _previewSeq++;
+  _lastVideoPreviewOutIndex = -1;
+  _previewPending = null;
+  if (_previewRaf) cancelAnimationFrame(_previewRaf);
+  _previewRaf = 0;
   if (_thumbVideo) {
     _thumbVideo.pause();
     _thumbVideo.removeAttribute("src");
@@ -1579,6 +1592,9 @@ function renderProcessedFromVideo() {
   const out = $("dstCanvas");
   canvasSizeToElement(out);
   const octx = out.getContext("2d");
+  octx.clearRect(0, 0, out.width, out.height);
+  octx.fillStyle = "#0b1220";
+  octx.fillRect(0, 0, out.width, out.height);
   drawFit(octx, tmp, out.width, out.height);
   updateScrubUI();
 }
@@ -1620,7 +1636,30 @@ function renderProcessedFromVideoEl(v) {
   const out = $("dstCanvas");
   canvasSizeToElement(out);
   const octx = out.getContext("2d");
+  octx.clearRect(0, 0, out.width, out.height);
+  octx.fillStyle = "#0b1220";
+  octx.fillRect(0, 0, out.width, out.height);
   drawFit(octx, tmp, out.width, out.height);
+}
+
+function renderBeforeFromVideoEl(v) {
+  if (!v || v.readyState < 2) return;
+  if (!v.videoWidth || !v.videoHeight) return;
+  const c = $("srcCanvas");
+  if (!c) return;
+  canvasSizeToElement(c);
+  const ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.fillStyle = "#0b1220";
+  ctx.fillRect(0, 0, c.width, c.height);
+  const vw = v.videoWidth;
+  const vh = v.videoHeight;
+  const scale = Math.min(c.width / vw, c.height / vh);
+  const dw = vw * scale;
+  const dh = vh * scale;
+  const dx = (c.width - dw) / 2;
+  const dy = (c.height - dh) / 2;
+  ctx.drawImage(v, dx, dy, dw, dh);
 }
 
 function updateVideoPreviewDuringConvert(t) {
@@ -1633,11 +1672,12 @@ function updateVideoPreviewDuringConvert(t) {
   const target = Math.max(0, t || 0);
   if (Math.abs((v.currentTime || 0) - target) < 0.0005) {
     renderProcessedFromVideoEl(v);
+    updateScrubUI();
     return;
   }
-  const seq = ++_thumbSeq;
+  const seq = ++_previewSeq;
   const on = () => {
-    if (seq !== _thumbSeq) return;
+    if (seq !== _previewSeq) return;
     renderProcessedFromVideoEl(v);
     updateScrubUI();
   };
@@ -1648,6 +1688,121 @@ function updateVideoPreviewDuringConvert(t) {
   }
 }
 
+function requestVideoPreviewUpdate(outIndex, t) {
+  _previewPending = { t: t || 0 };
+  if (_previewRaf) return;
+  _previewRaf = requestAnimationFrame(() => {
+    _previewRaf = 0;
+    const p = _previewPending;
+    _previewPending = null;
+    if (!p) return;
+    if (!isConverting || mode !== "video") return;
+    scheduleConvertPreview(p.t || 0);
+    updateScrubUI();
+  });
+}
+
+function syncSrcVideoToConvertTime(t) {
+  const v = $("srcVideo");
+  if (!v || !isFinite(v.duration) || v.duration <= 0) return;
+  const dur = isFinite(v.duration) ? v.duration : 0;
+  const target = Math.min(dur, Math.max(0, t || 0));
+  const now = performance.now();
+  if (Math.abs((_lastPreviewSyncT || 0) - target) < 0.0005 && now - (_lastPreviewSyncAt || 0) < 180) return;
+  _lastPreviewSyncT = target;
+  _lastPreviewSyncAt = now;
+  try {
+    v.pause();
+  } catch {
+  }
+  try {
+    v.currentTime = target;
+  } catch {
+  }
+}
+
+function renderAfterFromJpegBlob(blob) {
+  const seq = ++_afterPreviewSeq;
+  const out = $("dstCanvas");
+  if (!out) return;
+  canvasSizeToElement(out);
+  const octx = out.getContext("2d");
+  octx.clearRect(0, 0, out.width, out.height);
+  octx.fillStyle = "#0b1220";
+  octx.fillRect(0, 0, out.width, out.height);
+  if (!blob) return;
+
+  const w = out.width;
+  const h = out.height;
+  const drawImg = (img) => {
+    if (seq !== _afterPreviewSeq) return;
+    const sw = img.width || img.videoWidth || 1;
+    const sh = img.height || img.videoHeight || 1;
+    const scale = Math.min(w / sw, h / sh);
+    const dw = sw * scale;
+    const dh = sh * scale;
+    const dx = (w - dw) / 2;
+    const dy = (h - dh) / 2;
+    octx.drawImage(img, dx, dy, dw, dh);
+  };
+
+  if (typeof createImageBitmap === "function") {
+    createImageBitmap(blob)
+      .then((bmp) => {
+        try {
+          drawImg(bmp);
+        } finally {
+          try {
+            if (bmp && typeof bmp.close === "function") bmp.close();
+          } catch {
+          }
+        }
+      })
+      .catch(() => {
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          try {
+            drawImg(img);
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+        };
+        img.onerror = () => URL.revokeObjectURL(url);
+        img.src = url;
+      });
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.onload = () => {
+    try {
+      drawImg(img);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
+  img.onerror = () => URL.revokeObjectURL(url);
+  img.src = url;
+}
+
+function scheduleConvertPreview(t) {
+  const now = performance.now();
+  const fps = getInputFps();
+  const r = getSelectedFrameRange();
+  const startT = r.start / fps;
+  const endT = r.end / fps;
+  const rangeDur = Math.max(0, endT - startT);
+  const rel = rangeDur > 0 ? (t - startT) / rangeDur : 0;
+  const pct = Math.round(Math.max(0, Math.min(1, rel)) * 100);
+  if (pct <= _convertPreviewPct && now - (_convertPreviewAt || 0) < 600) return;
+  if (pct === _convertPreviewPct && now - (_convertPreviewAt || 0) < 250) return;
+  _convertPreviewPct = pct;
+  _convertPreviewAt = now;
+  updateVideoPreviewDuringConvert(t);
+}
+
 function showImageAt(index) {
   if (!images.length) return;
   const next = Math.max(0, Math.min(images.length - 1, Number(index) || 0));
@@ -1656,10 +1811,12 @@ function showImageAt(index) {
   const srcImg = $("srcImg");
   const srcHint = $("srcHint");
   const srcVideo = $("srcVideo");
+  const srcCanvas = $("srcCanvas");
   srcVideo.pause();
   srcVideo.style.display = "none";
   srcVideo.removeAttribute("src");
   srcVideo.load();
+  if (srcCanvas) srcCanvas.style.display = "none";
 
   if (imageObjUrl) URL.revokeObjectURL(imageObjUrl);
   imageObjUrl = URL.createObjectURL(images[imageIndex]);
@@ -1841,11 +1998,13 @@ async function loadPreview(pickSeq) {
   const srcVideo = $("srcVideo");
   const srcImg = $("srcImg");
   const srcHint = $("srcHint");
+  const srcCanvas = $("srcCanvas");
   srcVideo.pause();
   srcVideo.removeAttribute("src");
   srcVideo.load();
   srcVideo.style.display = "none";
   srcImg.style.display = "none";
+  if (srcCanvas) srcCanvas.style.display = "none";
   srcHint.style.display = "block";
   if (pickSeq !== _pickSeq) return;
 
@@ -2020,6 +2179,8 @@ async function run() {
     isConverting = true;
     stopPlayback();
     stopVideoLoop();
+    const srcVideoEl = $("srcVideo");
+    if (srcVideoEl) srcVideoEl.style.display = "block";
     const v = $("srcVideo");
     try {
       if (!v || !isFinite(v.readyState)) throw new Error("沒有影片可處理");
@@ -2087,11 +2248,12 @@ async function run() {
                 out[item.outIndex] = blob;
                 if (blob.size > maxBytes) maxBytes = blob.size;
                 done++;
-                _convertVideoT = item.t;
-                _convertVideoFrame = item.frame;
+                _convertVideoT = Math.max(_convertVideoT || 0, item.t || 0);
+                _convertVideoFrame = Math.max(_convertVideoFrame || 0, item.frame || 0);
                 if (done % 5 === 0 || done === count) {
                   $("result").textContent = `Mode: video\nFrames: ${done}/${count}\nLast: frame ${item.frame}  (t=${item.t.toFixed(2)}s / ${dur.toFixed(2)}s)\nDecode parallel: ${parallel}\nProcess workers: ${procPoolSize}\nMax JPEG bytes: ${maxBytes}`;
                   updateScrubUI();
+                  requestVideoPreviewUpdate(item.outIndex, _convertVideoT);
                 }
                 setProgress(Math.round((done / count) * 90));
                 inFlight.release();
@@ -2103,12 +2265,12 @@ async function run() {
                   out[item.outIndex] = blob;
                   if (blob.size > maxBytes) maxBytes = blob.size;
                   done++;
-                  _convertVideoT = item.t;
-                  _convertVideoFrame = item.frame;
+                  _convertVideoT = Math.max(_convertVideoT || 0, item.t || 0);
+                  _convertVideoFrame = Math.max(_convertVideoFrame || 0, item.frame || 0);
                   if (done % 5 === 0 || done === count) {
                     $("result").textContent = `Mode: video\nFrames: ${done}/${count}\nLast: frame ${item.frame}  (t=${item.t.toFixed(2)}s / ${dur.toFixed(2)}s)\nDecode parallel: ${parallel}\nProcess workers: ${procPoolSize}\nMax JPEG bytes: ${maxBytes}`;
                     updateScrubUI();
-                    updateVideoPreviewDuringConvert(item.t);
+                    requestVideoPreviewUpdate(item.outIndex, _convertVideoT);
                   }
                   setProgress(Math.round((done / count) * 90));
                 })
@@ -2150,6 +2312,7 @@ async function run() {
       $("run").disabled = mode === "unknown" || mode === "—";
       renderProcessedFromVideo();
       setPlayButton();
+      if (srcVideoEl) srcVideoEl.style.display = "block";
     }
     return;
   }

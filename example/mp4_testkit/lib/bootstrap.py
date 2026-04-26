@@ -238,8 +238,6 @@ def build_bus():
         pixel_format=pixel_format,
         bytes_per_pixel=bytes_per_pixel,
     )
-    write_chunk = int(tft_cfg.get("write_chunk", 32768) or 0)
-    lcd.write_chunk = write_chunk
     lcd.set_window(0, 0)
 
     bus = SysBus()

@@ -139,13 +139,7 @@ class TFT:
         """寫入數據到顯示器"""
         self.dc(1)
         self.cs(0)
-        chunk = int(getattr(self, "write_chunk", 0) or 0)
-        if chunk > 0 and len(data) > chunk:
-            mv = memoryview(data)
-            for off in range(0, len(mv), chunk):
-                self.spi.write(mv[off:off + chunk])
-        else:
-            self.spi.write(data)
+        self.spi.write(data)
         self.cs(1)
     
     def write_cmd_data(self, cmd, data):

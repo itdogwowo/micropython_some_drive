@@ -14,6 +14,7 @@ import zipfile
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -477,7 +478,8 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self):
-        if self.path == "/":
+        req_path = urlsplit(self.path).path
+        if req_path == "/":
             index_path = STATIC_DIR / "index.html"
             if index_path.exists():
                 data = index_path.read_text(encoding="utf-8")
@@ -485,7 +487,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 _text(self, HTTPStatus.OK, INDEX_HTML, content_type="text/html")
             return
-        if self.path == "/app.js":
+        if req_path == "/app.js":
             app_path = STATIC_DIR / "app.js"
             if app_path.exists():
                 data = app_path.read_text(encoding="utf-8")
@@ -493,8 +495,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 _text(self, HTTPStatus.NOT_FOUND, "Not found")
             return
-        if self.path.startswith("/download/"):
-            parts = self.path.split("/")
+        if req_path.startswith("/download/"):
+            parts = req_path.split("/")
             if len(parts) != 4:
                 _text(self, HTTPStatus.NOT_FOUND, "Not found")
                 return
