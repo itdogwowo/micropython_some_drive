@@ -24,6 +24,142 @@ let _lastPhotoInputFps = 30;
 let _lastVideoInputFps = 30;
 let _pickSeq = 0;
 let _rangeReset = true;
+let _convertVideoT = 0;
+let _convertVideoFrame = 0;
+let _photoWorkerUrl = null;
+
+const PHOTO_WORKER_CODE = `self.onmessage = async (e) => {
+  const d = e.data || {};
+  const id = d.id;
+  try {
+    if (typeof OffscreenCanvas === "undefined") throw new Error("OffscreenCanvas not supported");
+    const hasCreateImageBitmap = typeof createImageBitmap === "function";
+    const file = d.file;
+    const w = Math.max(1, d.w | 0);
+    const h = Math.max(1, d.h | 0);
+    const rotate = (d.rotate | 0) || 0;
+    const cropMode = d.cropMode === "contain" ? "contain" : "cover";
+    const contrast = typeof d.contrast === "number" ? d.contrast : parseFloat(String(d.contrast || "1"));
+    const quality = Math.min(100, Math.max(1, d.quality | 0));
+    let bmp = d.bitmap;
+    if (!bmp) {
+      if (!hasCreateImageBitmap) throw new Error("createImageBitmap not supported");
+      if (!file) throw new Error("No input");
+      bmp = await createImageBitmap(file);
+    }
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext("2d", { alpha: false });
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, h);
+    ctx.save();
+    if (rotate) {
+      ctx.translate(w / 2, h / 2);
+      ctx.rotate((rotate * Math.PI) / 180);
+      ctx.translate(-w / 2, -h / 2);
+    }
+    ctx.filter = Math.abs(contrast - 1.0) < 1e-6 ? "none" : \`contrast(\${Math.max(0.1, contrast) * 100}%)\`;
+    const sx = bmp.width;
+    const sy = bmp.height;
+    const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
+    const dw = sx * scale;
+    const dh = sy * scale;
+    const dx = (w - dw) / 2;
+    const dy = (h - dh) / 2;
+    ctx.drawImage(bmp, dx, dy, dw, dh);
+    ctx.restore();
+    let blob;
+    if (typeof canvas.convertToBlob === "function") {
+      blob = await canvas.convertToBlob({ type: "image/jpeg", quality: quality / 100 });
+    } else {
+      throw new Error("convertToBlob not supported");
+    }
+    try { if (bmp && typeof bmp.close === "function") bmp.close(); } catch {}
+    self.postMessage({ id, ok: true, blob });
+  } catch (err) {
+    self.postMessage({ id, ok: false, error: String(err && err.message ? err.message : err) });
+  }
+};`;
+
+function getPhotoWorkerUrl() {
+  if (_photoWorkerUrl) return _photoWorkerUrl;
+  const blob = new Blob([PHOTO_WORKER_CODE], { type: "text/javascript" });
+  _photoWorkerUrl = URL.createObjectURL(blob);
+  return _photoWorkerUrl;
+}
+
+class PhotoWorkerPool {
+  constructor(size) {
+    this.size = Math.max(1, size | 0);
+    this.queue = [];
+    this.pending = new Map();
+    this.workers = [];
+    this.seq = 0;
+    const url = getPhotoWorkerUrl();
+    for (let i = 0; i < this.size; i++) {
+      const w = new Worker(url);
+      const state = { w, busy: false };
+      w.onmessage = (e) => {
+        const d = e.data || {};
+        const rec = this.pending.get(d.id);
+        if (rec) {
+          this.pending.delete(d.id);
+          if (d && d.ok) rec.resolve(d.blob);
+          else rec.reject(new Error(d && d.error ? d.error : "worker error"));
+        }
+        state.busy = false;
+        this.pump();
+      };
+      w.onerror = () => {
+        state.busy = false;
+        this.pump();
+      };
+      this.workers.push(state);
+    }
+  }
+
+  pump() {
+    for (const state of this.workers) {
+      if (state.busy) continue;
+      const job = this.queue.shift();
+      if (!job) return;
+      state.busy = true;
+      if (job.transfer && job.transfer.length) state.w.postMessage(job.msg, job.transfer);
+      else state.w.postMessage(job.msg);
+    }
+  }
+
+  exec(msg) {
+    const id = ++this.seq;
+    const payload = { ...msg, id };
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.queue.push({ msg: payload });
+      this.pump();
+    });
+  }
+
+  execTransfer(msg, transfer) {
+    const id = ++this.seq;
+    const payload = { ...msg, id };
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.queue.push({ msg: payload, transfer: Array.isArray(transfer) ? transfer : [] });
+      this.pump();
+    });
+  }
+
+  terminate() {
+    for (const state of this.workers) {
+      try {
+        state.w.terminate();
+      } catch {
+      }
+    }
+    this.workers = [];
+    this.queue = [];
+    this.pending.clear();
+  }
+}
 
 function getSelectedFrameRange() {
   const sr = $("videoStartRange");
@@ -514,6 +650,7 @@ function params() {
     quality: $("quality").value,
     input_fps: $("inputFps") ? $("inputFps").value : "30",
     frame_step: $("frameStep") ? $("frameStep").value : "1",
+    video_parallel: $("videoParallel") ? $("videoParallel").value : "4",
     video_start_frame: $("videoStartFrame") ? $("videoStartFrame").value : "0",
     video_end_frame: $("videoEndFrame") ? $("videoEndFrame").value : "0",
   };
@@ -565,6 +702,7 @@ function initRanges() {
   linkRangeAndNumber("quality", "qualityNum");
   linkRangeAndNumber("inputFps", "inputFpsNum");
   linkRangeAndNumber("frameStep", "frameStepNum");
+  linkRangeAndNumber("videoParallel", "videoParallelNum");
   linkRangeAndNumber("contrast", "contrastNum", (v) => Number(v).toFixed(2));
   const fs = $("frameStep");
   const fsn = $("frameStepNum");
@@ -1374,7 +1512,7 @@ function updateScrubUI() {
     scrub.step = "1";
     const v = $("srcVideo");
     const dur = v && isFinite(v.duration) ? v.duration : 0;
-    const t = v && isFinite(v.currentTime) ? v.currentTime : 0;
+    const t = isConverting ? _convertVideoT : v && isFinite(v.currentTime) ? v.currentTime : 0;
     const fps = getInputFps();
     const r = getSelectedFrameRange();
     const startT = r.start / fps;
@@ -1384,7 +1522,7 @@ function updateScrubUI() {
     const pct = Math.round(Math.max(0, Math.min(1, rel)) * 100);
     scrub.value = String(pct);
     $("scrubLabel").textContent = "Time";
-    const frame = Math.max(0, Math.round(t * fps));
+    const frame = isConverting ? _convertVideoFrame : Math.max(0, Math.round(t * fps));
     const rangePos = Math.max(0, Math.min(r.end - r.start, Math.round((t - startT) * fps)));
     const rangeDenom = Math.max(1, r.end - r.start + 1);
     const rangeNumer = Math.max(1, rangePos + 1);
@@ -1443,6 +1581,71 @@ function renderProcessedFromVideo() {
   const octx = out.getContext("2d");
   drawFit(octx, tmp, out.width, out.height);
   updateScrubUI();
+}
+
+function renderProcessedFromVideoEl(v) {
+  if (!v || v.readyState < 2) return;
+  if (!v.videoWidth || !v.videoHeight) return;
+  const p = params();
+  const w = Math.max(1, parseInt(p.width || "160", 10));
+  const h = Math.max(1, parseInt(p.height || "160", 10));
+  const rotate = parseInt(p.rotate || "0", 10) || 0;
+  const cropMode = p.crop_mode || "cover";
+  const contrast = parseFloat(p.contrast || "1.0");
+
+  const tmp = document.createElement("canvas");
+  tmp.width = w;
+  tmp.height = h;
+  const tctx = tmp.getContext("2d");
+  tctx.fillStyle = "#000";
+  tctx.fillRect(0, 0, w, h);
+  tctx.save();
+  if (rotate) {
+    tctx.translate(w / 2, h / 2);
+    tctx.rotate((rotate * Math.PI) / 180);
+    tctx.translate(-w / 2, -h / 2);
+  }
+  tctx.filter = Math.abs(contrast - 1.0) < 1e-6 ? "none" : `contrast(${Math.max(0.1, contrast) * 100}%)`;
+
+  const sx = v.videoWidth;
+  const sy = v.videoHeight;
+  const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
+  const dw = sx * scale;
+  const dh = sy * scale;
+  const dx = (w - dw) / 2;
+  const dy = (h - dh) / 2;
+  tctx.drawImage(v, dx, dy, dw, dh);
+  tctx.restore();
+
+  const out = $("dstCanvas");
+  canvasSizeToElement(out);
+  const octx = out.getContext("2d");
+  drawFit(octx, tmp, out.width, out.height);
+}
+
+function updateVideoPreviewDuringConvert(t) {
+  const v = $("srcVideo");
+  if (!v || !isFinite(v.duration) || v.duration <= 0) return;
+  try {
+    v.pause();
+  } catch {
+  }
+  const target = Math.max(0, t || 0);
+  if (Math.abs((v.currentTime || 0) - target) < 0.0005) {
+    renderProcessedFromVideoEl(v);
+    return;
+  }
+  const seq = ++_thumbSeq;
+  const on = () => {
+    if (seq !== _thumbSeq) return;
+    renderProcessedFromVideoEl(v);
+    updateScrubUI();
+  };
+  try {
+    v.addEventListener("seeked", on, { once: true });
+    v.currentTime = target;
+  } catch {
+  }
 }
 
 function showImageAt(index) {
@@ -1550,6 +1753,82 @@ async function renderVideoToJpegBlob(v, p) {
     return await canvas.convertToBlob({ type: "image/jpeg", quality: quality / 100 });
   }
   return await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", quality / 100));
+}
+
+async function waitVideoFrameReady(v, timeoutMs) {
+  const t0 = performance.now();
+  while (true) {
+    if (v && v.readyState >= 2 && (v.videoWidth || 0) > 0 && (v.videoHeight || 0) > 0) return;
+    if (performance.now() - t0 > (timeoutMs || 2000)) throw new Error("Video frame not ready");
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+}
+
+async function captureVideoFrameBitmap(v) {
+  await waitVideoFrameReady(v, 2500);
+  const vw = v.videoWidth || 0;
+  const vh = v.videoHeight || 0;
+  if (!vw || !vh) throw new Error("No video size");
+  if (typeof OffscreenCanvas !== "undefined") {
+    const c = new OffscreenCanvas(vw, vh);
+    const ctx = c.getContext("2d", { alpha: false });
+    ctx.drawImage(v, 0, 0, vw, vh);
+    if (typeof c.transferToImageBitmap === "function") return c.transferToImageBitmap();
+    if (typeof createImageBitmap === "function") return await createImageBitmap(c);
+    throw new Error("No way to make ImageBitmap");
+  }
+  if (typeof document !== "undefined") {
+    const c = document.createElement("canvas");
+    c.width = vw;
+    c.height = vh;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(v, 0, 0, vw, vh);
+    if (typeof createImageBitmap === "function") return await createImageBitmap(c);
+  }
+  throw new Error("Canvas capture not supported");
+}
+
+function getVideoParallelism(p, count) {
+  const n = Math.max(1, Math.floor(parseFloat(p.video_parallel || "1") || 1));
+  const hc = Math.max(1, navigator.hardwareConcurrency || 4);
+  return Math.max(1, Math.min(n, 8, hc, count));
+}
+
+function makeHiddenVideo(src) {
+  const v = document.createElement("video");
+  v.muted = true;
+  v.playsInline = true;
+  v.preload = "auto";
+  v.style.display = "none";
+  v.src = src;
+  v.load();
+  document.body.appendChild(v);
+  return v;
+}
+
+class AsyncSemaphore {
+  constructor(max) {
+    this.max = Math.max(1, max | 0);
+    this.cur = 0;
+    this.q = [];
+  }
+
+  acquire() {
+    if (this.cur < this.max) {
+      this.cur++;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => this.q.push(resolve));
+  }
+
+  release() {
+    this.cur = Math.max(0, this.cur - 1);
+    const next = this.q.shift();
+    if (next) {
+      this.cur++;
+      next();
+    }
+  }
 }
 
 
@@ -1668,17 +1947,57 @@ async function run() {
 
       const rangeFrames = endFrame - startFrame + 1;
       const total = Math.max(1, Math.floor((rangeFrames - 1) / step) + 1);
+      const canParallel =
+        typeof Worker !== "undefined" &&
+        typeof OffscreenCanvas !== "undefined" &&
+        typeof createImageBitmap === "function" &&
+        total > 1;
       let done = 0;
-      for (let i = startFrame; i <= endFrame; i += step) {
-        const blob = await renderImageToJpegBlob(images[i], p);
-        blobs.push(blob);
-        if (blob.size > maxBytes) maxBytes = blob.size;
-        done++;
-        if (done % 10 === 0 || i + step > endFrame) {
-          imageIndex = i;
-          updateScrubUI();
+      if (canParallel) {
+        const hc = Math.max(1, navigator.hardwareConcurrency || 4);
+        const poolSize = Math.min(8, hc, total);
+        const pool = new PhotoWorkerPool(poolSize);
+        try {
+          const w = Math.max(1, parseInt(p.width || "160", 10));
+          const h = Math.max(1, parseInt(p.height || "160", 10));
+          const rotate = parseInt(p.rotate || "0", 10) || 0;
+          const cropMode = p.crop_mode || "cover";
+          const contrast = parseFloat(p.contrast || "1.0");
+          const quality = Math.min(100, Math.max(1, parseInt(p.quality || "85", 10)));
+          const indices = [];
+          for (let i = startFrame; i <= endFrame; i += step) indices.push(i);
+          const out = new Array(indices.length);
+          const promises = indices.map((srcIndex, outIndex) =>
+            pool
+              .exec({ file: images[srcIndex], w, h, rotate, cropMode, contrast, quality })
+              .then((blob) => {
+                out[outIndex] = blob;
+                if (blob.size > maxBytes) maxBytes = blob.size;
+                done++;
+                if (done % 10 === 0 || done === total) {
+                  showImageAt(srcIndex);
+                  updateScrubUI();
+                }
+                setProgress(Math.round((done / total) * 90));
+              })
+          );
+          await Promise.all(promises);
+          for (const b of out) blobs.push(b);
+        } finally {
+          pool.terminate();
         }
-        setProgress(Math.round((done / total) * 90));
+      } else {
+        for (let i = startFrame; i <= endFrame; i += step) {
+          const blob = await renderImageToJpegBlob(images[i], p);
+          blobs.push(blob);
+          if (blob.size > maxBytes) maxBytes = blob.size;
+          done++;
+          if (done % 10 === 0 || i + step > endFrame) {
+            showImageAt(i);
+            updateScrubUI();
+          }
+          setProgress(Math.round((done / total) * 90));
+        }
       }
       jpegBlobs = blobs;
       jpkBlob = await buildJpk(blobs);
@@ -1728,18 +2047,92 @@ async function run() {
       let maxBytes = 0;
       $("result").textContent = `Mode: video\nFrames: 0/${count}\nInput FPS: ${fps}\nStep: every ${step} frames\nRange: ${startFrame}..${endFrame} (of ${totalFrames - 1})\n\n抽幀中...`;
       setProgress(1);
+      const parallel = getVideoParallelism(p, count);
+      const indices = [];
       for (let i = 0; i < count; i++) {
         const frame = Math.min(endFrame, startFrame + i * step);
-        const t = frame / fps;
-        await seekVideo(v, t);
-        const blob = await renderVideoToJpegBlob(v, p);
-        blobs.push(blob);
-        if (blob.size > maxBytes) maxBytes = blob.size;
-        if (i % 5 === 0 || i === count - 1) {
-          $("result").textContent = `Mode: video\nFrames: ${i + 1}/${count}\nAt frame: ${frame}  (t=${t.toFixed(2)}s / ${dur.toFixed(2)}s)\nMax JPEG bytes: ${maxBytes}`;
-          updateScrubUI();
+        indices.push({ outIndex: i, frame, t: frame / fps });
+      }
+      const vids = [];
+      const procPoolSize = Math.min(8, Math.max(1, navigator.hardwareConcurrency || 4), count);
+      const procPool = new PhotoWorkerPool(procPoolSize);
+      const inFlight = new AsyncSemaphore(procPoolSize * 2);
+      try {
+        for (let i = 0; i < parallel; i++) vids.push(makeHiddenVideo(v.src));
+        await Promise.all(vids.map((vv) => ensureVideoReady(vv)));
+        const buckets = Array.from({ length: parallel }, () => []);
+        for (let i = 0; i < indices.length; i++) buckets[i % parallel].push(indices[i]);
+        const out = new Array(indices.length);
+        let done = 0;
+        const pickSeq = _pickSeq;
+        const tasks = [];
+        const runners = buckets.map((list, wi) =>
+          (async () => {
+            const vv = vids[wi];
+            for (const item of list) {
+              if (pickSeq !== _pickSeq) throw new Error("來源已變更");
+              await seekVideo(vv, item.t);
+              await inFlight.acquire();
+              const w = Math.max(1, parseInt(p.width || "160", 10));
+              const h = Math.max(1, parseInt(p.height || "160", 10));
+              const rotate = parseInt(p.rotate || "0", 10) || 0;
+              const cropMode = p.crop_mode || "cover";
+              const contrast = parseFloat(p.contrast || "1.0");
+              const quality = Math.min(100, Math.max(1, parseInt(p.quality || "85", 10)));
+              let bmp = null;
+              try {
+                bmp = await captureVideoFrameBitmap(vv);
+              } catch (e) {
+                const blob = await renderVideoToJpegBlob(vv, p);
+                out[item.outIndex] = blob;
+                if (blob.size > maxBytes) maxBytes = blob.size;
+                done++;
+                _convertVideoT = item.t;
+                _convertVideoFrame = item.frame;
+                if (done % 5 === 0 || done === count) {
+                  $("result").textContent = `Mode: video\nFrames: ${done}/${count}\nLast: frame ${item.frame}  (t=${item.t.toFixed(2)}s / ${dur.toFixed(2)}s)\nDecode parallel: ${parallel}\nProcess workers: ${procPoolSize}\nMax JPEG bytes: ${maxBytes}`;
+                  updateScrubUI();
+                }
+                setProgress(Math.round((done / count) * 90));
+                inFlight.release();
+                continue;
+              }
+              const task = procPool
+                .execTransfer({ bitmap: bmp, w, h, rotate, cropMode, contrast, quality }, [bmp])
+                .then((blob) => {
+                  out[item.outIndex] = blob;
+                  if (blob.size > maxBytes) maxBytes = blob.size;
+                  done++;
+                  _convertVideoT = item.t;
+                  _convertVideoFrame = item.frame;
+                  if (done % 5 === 0 || done === count) {
+                    $("result").textContent = `Mode: video\nFrames: ${done}/${count}\nLast: frame ${item.frame}  (t=${item.t.toFixed(2)}s / ${dur.toFixed(2)}s)\nDecode parallel: ${parallel}\nProcess workers: ${procPoolSize}\nMax JPEG bytes: ${maxBytes}`;
+                    updateScrubUI();
+                    updateVideoPreviewDuringConvert(item.t);
+                  }
+                  setProgress(Math.round((done / count) * 90));
+                })
+                .finally(() => {
+                  inFlight.release();
+                });
+              tasks.push(task);
+            }
+          })()
+        );
+        await Promise.all(runners);
+        await Promise.all(tasks);
+        for (const b of out) blobs.push(b);
+      } finally {
+        procPool.terminate();
+        for (const vv of vids) {
+          try {
+            vv.pause();
+            vv.removeAttribute("src");
+            vv.load();
+            vv.remove();
+          } catch {
+          }
         }
-        setProgress(Math.round(((i + 1) / count) * 90));
       }
       jpegBlobs = blobs;
       jpkBlob = await buildJpk(blobs);
@@ -1752,6 +2145,8 @@ async function run() {
       $("result").textContent = String(e && e.message ? e.message : e);
     } finally {
       isConverting = false;
+      _convertVideoT = 0;
+      _convertVideoFrame = 0;
       $("run").disabled = mode === "unknown" || mode === "—";
       renderProcessedFromVideo();
       setPlayButton();

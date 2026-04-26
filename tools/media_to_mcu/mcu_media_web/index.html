@@ -146,6 +146,14 @@
           </div>
           <div class="muted" id="fpsOutInfo">Output FPS: —</div>
         </div>
+        <div>
+          <label>Video 並行解碼器數</label>
+          <div class="rangeRow">
+            <input id="videoParallel" type="range" value="4" min="1" max="8" step="1" />
+            <input id="videoParallelNum" type="number" value="4" min="1" max="8" step="1" />
+          </div>
+          <div class="muted">只影響 video 抽幀輸出</div>
+        </div>
         <div style="grid-column:1 / -1">
           <label>範圍（拖動選擇起迄）</label>
           <div class="rangeRow rangeWrap" style="gap:12px">
