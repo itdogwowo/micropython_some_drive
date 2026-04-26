@@ -49,6 +49,7 @@ const PHOTO_WORKER_CODE = `self.onmessage = async (e) => {
     const cropMode = d.cropMode === "contain" ? "contain" : "cover";
     const contrast = typeof d.contrast === "number" ? d.contrast : parseFloat(String(d.contrast || "1"));
     const quality = Math.min(100, Math.max(1, d.quality | 0));
+    const maxBytes = Math.max(0, d.maxBytes | 0);
     let bmp = d.bitmap;
     if (!bmp) {
       if (!hasCreateImageBitmap) throw new Error("createImageBitmap not supported");
@@ -77,7 +78,25 @@ const PHOTO_WORKER_CODE = `self.onmessage = async (e) => {
     ctx.restore();
     let blob;
     if (typeof canvas.convertToBlob === "function") {
-      blob = await canvas.convertToBlob({ type: "image/jpeg", quality: quality / 100 });
+      const encode = async (q) => await canvas.convertToBlob({ type: "image/jpeg", quality: q / 100 });
+      if (maxBytes > 0) {
+        let lo = 1;
+        let hi = quality;
+        let best = null;
+        for (let i = 0; i < 7 && lo <= hi; i++) {
+          const mid = Math.floor((lo + hi) / 2);
+          const b = await encode(mid);
+          if (b && b.size <= maxBytes) {
+            best = b;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
+        }
+        blob = best ? best : await encode(1);
+      } else {
+        blob = await encode(quality);
+      }
     } else {
       throw new Error("convertToBlob not supported");
     }
@@ -517,7 +536,7 @@ async function extractJpegsFromJpk(jpkFile) {
 
   let off = 16;
   const out = [];
-  const digits = Math.max(3, String(count - 1).length);
+  const digits = 3;
   for (let i = 0; i < count; i++) {
     if (off + 4 > bytes.length) throw new Error("JPK 格式錯誤：frame header 越界。");
     const size = u32le(bytes, off);
@@ -656,6 +675,7 @@ function params() {
     rotate: $("rotate").value,
     contrast: $("contrast").value,
     quality: $("quality").value,
+    max_jpeg_kb: $("maxJpegKb") ? $("maxJpegKb").value : "0",
     input_fps: $("inputFps") ? $("inputFps").value : "30",
     frame_step: $("frameStep") ? $("frameStep").value : "1",
     video_parallel: $("videoParallel") ? $("videoParallel").value : "4",
@@ -708,6 +728,7 @@ function initRanges() {
   linkRangeAndNumber("width", "widthNum");
   linkRangeAndNumber("height", "heightNum");
   linkRangeAndNumber("quality", "qualityNum");
+  linkRangeAndNumber("maxJpegKb", "maxJpegKbNum");
   linkRangeAndNumber("inputFps", "inputFpsNum");
   linkRangeAndNumber("frameStep", "frameStepNum");
   linkRangeAndNumber("videoParallel", "videoParallelNum");
@@ -1360,7 +1381,7 @@ async function buildZipFromJpegs(blobs) {
   const { dosTime, dosDate } = dosTimeDate();
   const encoder = new TextEncoder();
 
-  const digits = Math.max(3, String(blobs.length - 1).length);
+  const digits = 3;
 
   for (let i = 0; i < blobs.length; i++) {
     const name = String(i).padStart(digits, "0") + ".jpeg";
@@ -1466,6 +1487,8 @@ async function renderImageToJpegBlob(file, p) {
   const cropMode = p.crop_mode || "cover";
   const contrast = parseFloat(p.contrast || "1.0");
   const quality = Math.min(100, Math.max(1, parseInt(p.quality || "85", 10)));
+  const capKb = Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0);
+  const maxBytes = capKb > 0 ? capKb * 1024 : 0;
 
   const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(w, h) : document.createElement("canvas");
   canvas.width = w;
@@ -1491,10 +1514,30 @@ async function renderImageToJpegBlob(file, p) {
   ctx.drawImage(bmp, dx, dy, dw, dh);
   ctx.restore();
 
-  if (typeof canvas.convertToBlob === "function") {
-    return await canvas.convertToBlob({ type: "image/jpeg", quality: quality / 100 });
+  const encode = async (q) => {
+    if (typeof canvas.convertToBlob === "function") {
+      return await canvas.convertToBlob({ type: "image/jpeg", quality: q / 100 });
+    }
+    return await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", q / 100));
+  };
+
+  if (maxBytes > 0) {
+    let lo = 1;
+    let hi = quality;
+    let best = null;
+    for (let i = 0; i < 7 && lo <= hi; i++) {
+      const mid = Math.floor((lo + hi) / 2);
+      const b = await encode(mid);
+      if (b && b.size <= maxBytes) {
+        best = b;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return best ? best : await encode(1);
   }
-  return await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", quality / 100));
+  return await encode(quality);
 }
 
 function updateScrubUI() {
@@ -1879,6 +1922,8 @@ async function renderVideoToJpegBlob(v, p) {
   const cropMode = p.crop_mode || "cover";
   const contrast = parseFloat(p.contrast || "1.0");
   const quality = Math.min(100, Math.max(1, parseInt(p.quality || "85", 10)));
+  const capKb = Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0);
+  const maxBytes = capKb > 0 ? capKb * 1024 : 0;
 
   const useOffscreen = typeof OffscreenCanvas !== "undefined";
   const canvas = useOffscreen ? new OffscreenCanvas(w, h) : document.createElement("canvas");
@@ -1906,10 +1951,30 @@ async function renderVideoToJpegBlob(v, p) {
   ctx.drawImage(v, dx, dy, dw, dh);
   ctx.restore();
 
-  if (typeof canvas.convertToBlob === "function") {
-    return await canvas.convertToBlob({ type: "image/jpeg", quality: quality / 100 });
+  const encode = async (q) => {
+    if (typeof canvas.convertToBlob === "function") {
+      return await canvas.convertToBlob({ type: "image/jpeg", quality: q / 100 });
+    }
+    return await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", q / 100));
+  };
+
+  if (maxBytes > 0) {
+    let lo = 1;
+    let hi = quality;
+    let best = null;
+    for (let i = 0; i < 7 && lo <= hi; i++) {
+      const mid = Math.floor((lo + hi) / 2);
+      const b = await encode(mid);
+      if (b && b.size <= maxBytes) {
+        best = b;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return best ? best : await encode(1);
   }
-  return await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", quality / 100));
+  return await encode(quality);
 }
 
 async function waitVideoFrameReady(v, timeoutMs) {
@@ -2123,12 +2188,14 @@ async function run() {
           const cropMode = p.crop_mode || "cover";
           const contrast = parseFloat(p.contrast || "1.0");
           const quality = Math.min(100, Math.max(1, parseInt(p.quality || "85", 10)));
+          const capKb = Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0);
+          const maxBytesCap = capKb > 0 ? capKb * 1024 : 0;
           const indices = [];
           for (let i = startFrame; i <= endFrame; i += step) indices.push(i);
           const out = new Array(indices.length);
           const promises = indices.map((srcIndex, outIndex) =>
             pool
-              .exec({ file: images[srcIndex], w, h, rotate, cropMode, contrast, quality })
+              .exec({ file: images[srcIndex], w, h, rotate, cropMode, contrast, quality, maxBytes: maxBytesCap })
               .then((blob) => {
                 out[outIndex] = blob;
                 if (blob.size > maxBytes) maxBytes = blob.size;
@@ -2163,7 +2230,7 @@ async function run() {
       setProgress(100);
       $("downloadJpk").disabled = false;
       $("downloadAll").disabled = false;
-      $("result").textContent = `Mode: photo\nCount: ${blobs.length}\nInput FPS: ${getInputFps()}\nStep: every ${step} frames\nRange: ${startFrame}..${endFrame} (of ${totalFrames - 1})\nMax JPEG bytes: ${maxBytes}\n\n已產生 output.jpk，可下載或逐張下載 JPEG。`;
+      $("result").textContent = `Mode: photo\nCount: ${blobs.length}\nInput FPS: ${getInputFps()}\nStep: every ${step} frames\nRange: ${startFrame}..${endFrame} (of ${totalFrames - 1})\nMax JPEG bytes: ${maxBytes}\nMax JPEG cap: ${Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0) ? `${Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0)}KB` : "—"}\n\n已產生 output.jpk，可下載或逐張下載 JPEG。`;
     } catch (e) {
       setProgress(0);
       $("result").textContent = String(e && e.message ? e.message : e);
@@ -2218,6 +2285,8 @@ async function run() {
       const procPoolSize = Math.min(8, Math.max(1, navigator.hardwareConcurrency || 4), count);
       const procPool = new PhotoWorkerPool(procPoolSize);
       const inFlight = new AsyncSemaphore(procPoolSize * 2);
+      const capKb = Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0);
+      const maxBytesCap = capKb > 0 ? capKb * 1024 : 0;
       try {
         for (let i = 0; i < parallel; i++) vids.push(makeHiddenVideo(v.src));
         await Promise.all(vids.map((vv) => ensureVideoReady(vv)));
@@ -2260,7 +2329,7 @@ async function run() {
                 continue;
               }
               const task = procPool
-                .execTransfer({ bitmap: bmp, w, h, rotate, cropMode, contrast, quality }, [bmp])
+                .execTransfer({ bitmap: bmp, w, h, rotate, cropMode, contrast, quality, maxBytes: maxBytesCap }, [bmp])
                 .then((blob) => {
                   out[item.outIndex] = blob;
                   if (blob.size > maxBytes) maxBytes = blob.size;
@@ -2301,7 +2370,7 @@ async function run() {
       setProgress(100);
       $("downloadJpk").disabled = false;
       $("downloadAll").disabled = false;
-      $("result").textContent = `Mode: video\nCount: ${blobs.length}\nMax JPEG bytes: ${maxBytes}\n\n已產生 output.jpk，可下載或逐張下載 JPEG。`;
+      $("result").textContent = `Mode: video\nCount: ${blobs.length}\nMax JPEG bytes: ${maxBytes}\nMax JPEG cap: ${capKb ? `${capKb}KB` : "—"}\n\n已產生 output.jpk，可下載或逐張下載 JPEG。`;
     } catch (e) {
       setProgress(0);
       $("result").textContent = String(e && e.message ? e.message : e);
@@ -2394,7 +2463,7 @@ $("downloadAll").addEventListener("click", async () => {
     setProgress(95);
     $("result").textContent = $("result").textContent + "\n\n正在打包 JPEG.zip ...";
     const zipBlob = await buildZipFromJpegs(jpegBlobs);
-    downloadBlob(zipBlob, "output_jpeg.zip");
+    downloadBlob(zipBlob, "output.zip");
   } catch (e) {
     $("result").textContent = String(e && e.message ? e.message : e);
   } finally {

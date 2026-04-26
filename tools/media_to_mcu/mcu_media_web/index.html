@@ -132,6 +132,13 @@
           </div>
         </div>
         <div>
+          <label>JPEG 容量上限（KB，0 = 不限）</label>
+          <div class="rangeRow">
+            <input id="maxJpegKb" type="range" value="0" min="0" max="512" step="1" />
+            <input id="maxJpegKbNum" type="number" value="0" min="0" max="512" step="1" />
+          </div>
+        </div>
+        <div>
           <label>Input FPS</label>
           <div class="rangeRow">
             <input id="inputFps" type="range" value="30" min="1" max="120" step="1" />
@@ -233,6 +240,6 @@
       <div style="height:12px"></div>
       <div id="result" class="kv"></div>
     </div>
-    <script src="/app.js?v=5"></script>
+    <script src="/app.js?v=8"></script>
   </body>
 </html>
