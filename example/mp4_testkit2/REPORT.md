@@ -20,6 +20,7 @@
 - 改用 **pack 單檔容器（keep-open sequential read）** 可以把吞吐提升約 30～40 倍，並大幅降低抖動。
 - 使用 **SDIO/SDMMC（4-bit）** 相比 flash 小檔案模式有顯著提升；搭配 pack 後可得到最佳吞吐與穩定性。
 - RAM preload 能把讀取成本降到 0，但不適合作為常態方案（容量受限）；適合作為 debug/對照基準或小素材模式。
+- pipeline 預設與參數已做「可省略」與「智能化」：使用者不需要理解 `io_prefetch/io_read_chunk/preload_limit_bytes`，開發者仍可覆蓋。
 
 ## 量測方法
 
@@ -128,6 +129,53 @@ pack 檔可由 PC 端工具打包產生：
 
 - `mp4_testkit/pack_jpegs.py`
 
+## Pipeline 參數（開發者向）
+
+### io_buffers / frame_buffers
+
+- `io_buffers`：Core0 讀取 → Core1 解碼之間的 buffer 槽數（吸收 I/O 尖峰）。
+- `frame_buffers`：Core1 解碼 → Core0 顯示之間的 buffer 槽數（吸收顯示端阻塞）。
+
+在 SDIO + pack 的量測下，I/O 尾巴延遲很乾淨（>20ms 幾乎為 0），因此預設 `3/3` 已足夠；在 flash+folder 或不穩定 I/O 時，可提高 `io_buffers` 以吸收尖峰。
+
+### io_prefetch（已內建預設）
+
+`io_prefetch` 是「水位線」：當 `io_hub.fill_level < io_prefetch`，Core0 才會讀下一張填入 io_hub。
+
+已支援負數作相對值：
+
+- `io_prefetch = -1` → `io_buffers - 1`（更積極補貨）
+- `io_prefetch = -2` → `io_buffers - 2`（較保守，預設）
+
+可省略不填，會使用內建預設（`-2` 並保底至少 1）。
+
+### preload（支援 int 模式）
+
+`preload` 可用一個整數描述「預載張數等價」：
+
+- `preload = 0`：關閉 preload
+- `preload = N (>0)`：預載 budget = `max_jpeg_bytes * N`（約等於 N 張最大 JPEG 的容量）
+
+此模式用來降低啟動期抖動；cache 用完會自動切回正常讀取並繼續向前（不會只循環前幾張）。
+
+### preload_limit_bytes（保留兼容）
+
+仍可使用 `preload_limit_bytes` 作為固定上限：
+
+- `preload_limit_bytes > 0`：固定上限
+- `preload_limit_bytes < 0`：智能上限（參考 max_jpeg_bytes、io_buffers 與 mem_free）
+
+若 `preload` 使用 int 模式，會優先以 `max_jpeg_bytes * preload` 作為 budget。
+
+## 播放節奏：pace_ms 語意修正
+
+`pace_ms` 已修正為「每幀最少耗時（frame period）」而不是「額外 sleep」：
+
+- `pace_ms=0`：跑最大 FPS
+- `pace_ms=50`：目標約 20 FPS（若 decode+display 本身已超過 50ms 則無法達到）
+
+在等待節奏的空檔期間，Core0 會嘗試補 `io_hub`（預讀下一張），避免 sleep 造成管線斷糧。
+
 ## 實作摘要（本 repo 改動）
 
 - pack 容器格式與讀取：
@@ -162,4 +210,3 @@ pack 檔可由 PC 端工具打包產生：
 - `assets_pack=""`
 - `assets_root="/sd"`
 - `player.pipeline.preload=0`
-

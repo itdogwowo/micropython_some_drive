@@ -28,6 +28,9 @@ def task_loop(bus):
     cache_idx = 0
     while bus.shared.get("engine_run", True):
         if jpeg_cache is not None and bool(bus.shared.get("cache_active", False)):
+            pace_frames = int(bus.shared.get("pace_frames", 1) or 1)
+            if pace_frames < 1:
+                pace_frames = 1
             out_view = frame_hub.get_write_view()
             while out_view is None:
                 out_view = frame_hub.get_write_view()
@@ -55,7 +58,7 @@ def task_loop(bus):
             write_u32_le(out_view, hdr_off + 12, n)
             frame_hub.commit()
 
-            cache_idx += 1
+            cache_idx += pace_frames
             if cache_idx >= len(jpeg_cache):
                 cache_idx = 0
                 bus.shared["cache_active"] = False

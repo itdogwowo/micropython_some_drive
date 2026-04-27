@@ -132,12 +132,24 @@ def task_loop(bus):
 
     io_hub = bus.get_service("io_hub")
     frame_hub = bus.get_service("frame_hub")
+    compose_ring = bus.get_service("compose_ring")
+    user_compose = bus.get_service("user_compose")
     max_jpeg_bytes = int(bus.shared.get("max_jpeg_bytes", 0) or 0)
     frame_bytes = int(bus.shared.get("frame_bytes", 0) or 0)
+    frame_tail = int(bus.shared.get("frame_tail", 16) or 16)
     io_prefetch = int(bus.shared.get("io_prefetch", 0) or 0)
     io_read_chunk = int(bus.shared.get("io_read_chunk", 0) or 0)
     jpeg_cache = bus.get_service("jpeg_cache")
     pack = bus.get_service("pack")
+    display_layout = bus.shared.get("display_Layout") or []
+    compose_ctx = None
+    if compose_ring is not None:
+        compose_ctx = {
+            "bus": bus,
+            "display_Layout": display_layout,
+            "frame_bytes": frame_bytes,
+            "frame_tail": frame_tail,
+        }
     if bool(bus.shared.get("debug", False)):
         if jpeg_cache is None:
             print("[Core0] jpeg_cache: None")
@@ -150,18 +162,79 @@ def task_loop(bus):
     if paths and idx >= len(paths):
         idx = 0
         bus.shared["src_idx"] = 0
+
+    def _get_pace_frames():
+        n = int(bus.shared.get("pace_frames", 1) or 1)
+        return 1 if n < 1 else n
+
+    def _advance_idx(i, step):
+        if not paths:
+            return i
+        i += step
+        if i < len(paths):
+            return i
+        if loop_play:
+            return i % len(paths)
+        return len(paths) - 1
+
+    def _pack_fill_step(w, step):
+        step = 1 if step < 1 else step
+        frame_idx = 0
+        n = 0
+        read_us2 = 0
+        if step > 1:
+            _, dt_skip = pack.skip_next(step - 1)
+            read_us2 += dt_skip
+        frame_idx, n, dt_read = pack.read_next_into(w, max_jpeg_bytes)
+        read_us2 += dt_read
+        if n <= 0:
+            frame_idx = 0
+        tail_off = max_jpeg_bytes
+        write_u32_le(w, tail_off + 0, frame_idx if frame_idx is not None else 0)
+        write_u32_le(w, tail_off + 4, n)
+        write_u32_le(w, tail_off + 8, read_us2)
+        io_hub.commit()
     # 主迴圈：持續餵 JPEG 到 io_hub；同時從 frame_hub 取出已解碼 frame 顯示到 LCD
     while True:
         did_work = False
 
+
         r = frame_hub.get_read_view()
         if r is not None:
+            frame_t0_ms = time.ticks_ms()
             dec_us = read_u32_le(r, frame_bytes + 4)
             read_us = read_u32_le(r, frame_bytes + 8)
             read_n = read_u32_le(r, frame_bytes + 12)
             t0 = time.ticks_us()
             try:
-                lcd.write_data(r[:frame_bytes])
+                if compose_ring is None:
+                    lcd.write_data(r[:frame_bytes])
+                else:
+                    w = int(compose_ring.get("w", 0) or 0)
+                    mvs = compose_ring.get("mvs") or []
+                    if not mvs:
+                        lcd.write_data(r[:frame_bytes])
+                    else:
+                        out_mv = mvs[w]
+                        out_mv[:frame_bytes] = r[:frame_bytes]
+                        if frame_tail > 0:
+                            out_mv[frame_bytes:frame_bytes + frame_tail] = r[frame_bytes:frame_bytes + frame_tail]
+                        compose_ring["w"] = (w + 1) % len(mvs)
+                        if compose_ctx is not None:
+                            compose_ctx["src"] = r
+                            compose_ctx["dst"] = out_mv
+                            compose_ctx["frame_idx"] = read_u32_le(r, frame_bytes + 0)
+                            compose_ctx["dec_us"] = dec_us
+                            compose_ctx["read_us"] = read_us
+                            compose_ctx["read_n"] = read_n
+                            fbs = compose_ring.get("fbs")
+                            compose_ctx["dst_fb"] = None if not fbs else fbs[w]
+                            if user_compose is not None:
+                                try:
+                                    user_compose.compose(compose_ctx)
+                                except Exception:
+                                    pass
+                        lcd.write_data(out_mv[:frame_bytes])
             finally:
                 frame_hub.release_read()
             t1 = time.ticks_us()
@@ -173,7 +246,39 @@ def task_loop(bus):
             _stats_on_frame(disp_us, dec_us)
             did_work = True
             if pace_ms > 0:
-                time.sleep_ms(pace_ms)
+                while True:
+                    now_ms = time.ticks_ms()
+                    dt_ms = time.ticks_diff(now_ms, frame_t0_ms)
+                    if dt_ms >= pace_ms:
+                        break
+                    remain = pace_ms - dt_ms
+                    if remain <= 2:
+                        time.sleep_ms(1)
+                        continue
+
+                    cache_active = bool(bus.shared.get("cache_active", False))
+                    if io_hub.get_fill_level() < io_prefetch:
+                        w = io_hub.get_write_view()
+                        if w is not None:
+                            if pack is not None:
+                                _pack_fill_step(w, _get_pace_frames())
+                                continue
+                            if (not cache_active) and paths:
+                                p = paths[idx]
+                                t2 = time.ticks_us()
+                                n = _read_file_into(p, w, max_jpeg_bytes, io_read_chunk)
+                                t3 = time.ticks_us()
+                                read_us2 = time.ticks_diff(t3, t2)
+                                tail_off = max_jpeg_bytes
+                                write_u32_le(w, tail_off + 0, idx)
+                                write_u32_le(w, tail_off + 4, n)
+                                write_u32_le(w, tail_off + 8, read_us2)
+                                io_hub.commit()
+                                idx = _advance_idx(idx, _get_pace_frames())
+                                bus.shared["src_idx"] = idx
+                                continue
+
+                    time.sleep_ms(remain if remain < 5 else 5)
         else:
             cache_active = bool(bus.shared.get("cache_active", False))
             if pack is None and (not cache_active) and io_hub.get_fill_level() < io_prefetch:
@@ -191,26 +296,13 @@ def task_loop(bus):
                     write_u32_le(w, tail_off + 8, read_us)
                     io_hub.commit()
 
-                    idx += 1
-                    if idx >= len(paths):
-                        if loop_play:
-                            idx = 0
-                        else:
-                            idx = len(paths) - 1
+                    idx = _advance_idx(idx, _get_pace_frames())
                     bus.shared["src_idx"] = idx
                     did_work = True
             if pack is not None and io_hub.get_fill_level() < io_prefetch:
                 w = io_hub.get_write_view()
                 if w is not None:
-                    frame_idx, n, read_us = pack.read_next_into(w, max_jpeg_bytes)
-                    if n <= 0:
-                        frame_idx = 0
-
-                    tail_off = max_jpeg_bytes
-                    write_u32_le(w, tail_off + 0, frame_idx if frame_idx is not None else 0)
-                    write_u32_le(w, tail_off + 4, n)
-                    write_u32_le(w, tail_off + 8, read_us)
-                    io_hub.commit()
+                    _pack_fill_step(w, _get_pace_frames())
                     did_work = True
 
         if not did_work:

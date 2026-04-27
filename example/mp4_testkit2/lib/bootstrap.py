@@ -11,6 +11,20 @@ from lib.sdio_mount import mount_from_config
 from lib.sys_bus import SysBus
 
 
+def _parse_pixel_format(raw):
+    s = "" if raw is None else str(raw).strip()
+    if not s:
+        s = "RGB565_BE"
+    tft_order = None
+    if ":" in s:
+        base, tail = s.split(":", 1)
+        s = base.strip()
+        tail = tail.strip().upper()
+        if tail:
+            tft_order = tail
+    return s, tft_order
+
+
 def build_bus():
     cfg = load_config()
     player_cfg = cfg.get("player", {}) or {}
@@ -30,9 +44,23 @@ def build_bus():
             assets_root = "/jpeg"
             if debug:
                 print("[SD] not mounted, fallback assets_root=/jpeg")
+    print('assets_root : ',assets_root)
     tft_cfg = cfg.get("tft", {}) or {}
     jpeg_cfg = cfg.get("jpeg", {}) or {}
-    layout = (cfg.get("display_Layout") or [{}])[0] or {}
+    raw_layouts = cfg.get("display_Layout") or []
+    if not isinstance(raw_layouts, list):
+        raw_layouts = []
+    layouts = []
+    for i, it in enumerate(raw_layouts):
+        if isinstance(it, dict):
+            d = dict(it)
+        else:
+            d = {}
+        if "layout" not in d:
+            d["layout"] = i
+        layouts.append(d)
+    layouts.sort(key=lambda d: int(d.get("layout", 0) or 0))
+    layout = (layouts or [{}])[0] or {}
     assets_pack = cfg.get("assets_pack", None)
 
     width = int(tft_cfg.get("width", layout.get("width", 240)))
@@ -42,7 +70,7 @@ def build_bus():
     depth_val = layout.get("depth", -1)
     depth = -1 if depth_val is None else int(depth_val)
 
-    pixel_format = jpeg_cfg.get("pixel_format", "RGB565_BE")
+    pixel_format, tft_order = _parse_pixel_format(jpeg_cfg.get("pixel_format", "RGB565_BE"))
     rotation = int(jpeg_cfg.get("rotation", 0))
     block = bool(jpeg_cfg.get("block", True))
     return_bytes = bool(jpeg_cfg.get("return_bytes", False))
@@ -50,6 +78,9 @@ def build_bus():
     max_jpeg_bytes = int(jpeg_cfg.get("max_jpeg_bytes", 0) or 0)
 
     pace_ms = int(player_cfg.get("pace_ms", 0) or 0)
+    pace_frames = int(player_cfg.get("pace_frames", 1) or 1)
+    if pace_frames < 1:
+        pace_frames = 1
     loop_play = bool(player_cfg.get("loop", True))
     pipeline_cfg = player_cfg.get("pipeline", {}) or {}
     pipeline_io_buffers = pipeline_cfg.get("io_buffers", None)
@@ -65,26 +96,28 @@ def build_bus():
     stats_interval_ms = int(stats_cfg.get("interval_ms", 1000) or 1000)
     stats_frames_n = int(stats_cfg.get("frames_n", 60) or 60)
 
-    if pixel_format != "RGB565_BE":
-        raise ValueError("Only RGB565_BE is supported in New for now")
+    if pixel_format in ("RGB565_BE", "RGB565", "RGB565_LE"):
+        bytes_per_pixel = 2
+    elif pixel_format in ("RGB888", "RGB888_BE", "RGB888_LE"):
+        bytes_per_pixel = 3
+    else:
+        raise ValueError("Unsupported jpeg.pixel_format: {}".format(pixel_format))
 
-    decoder = jpeg.Decoder(
-        pixel_format=pixel_format,
-        rotation=rotation,
-        block=block,
-        return_bytes=return_bytes,
-    )
+    try:
+        decoder = jpeg.Decoder(
+            pixel_format=pixel_format,
+            rotation=rotation,
+            block=block,
+            return_bytes=return_bytes,
+        )
+    except Exception as e:
+        raise ValueError("jpeg.Decoder does not support pixel_format={}".format(pixel_format)) from e
 
     cache = None
     pack = None
     pack_candidates = []
     if isinstance(assets_pack, str) and assets_pack:
         pack_candidates.append(assets_pack)
-    else:
-        if sd_mount:
-            pack_candidates.append(sd_mount.rstrip("/") + "/" + folder + ".jpk")
-        pack_candidates.append("/jpeg/" + folder + ".jpk")
-        pack_candidates.append(assets_root + "/" + folder + ".jpk")
 
     for cand in pack_candidates:
         try:
@@ -121,8 +154,42 @@ def build_bus():
         if max_jpeg_bytes <= 0:
             max_jpeg_bytes = compute_max_file_size(paths)
 
-    if pack is None and bool(False if pipeline_preload is None else pipeline_preload):
-        limit = 0 if pipeline_preload_limit is None else int(pipeline_preload_limit)
+    if pack is None:
+        preload_cfg = pipeline_preload
+        preload_units = None
+        preload_enabled = False
+        if preload_cfg is None:
+            preload_enabled = True
+        elif isinstance(preload_cfg, bool):
+            preload_enabled = bool(preload_cfg)
+        else:
+            try:
+                preload_units = int(preload_cfg)
+                preload_enabled = preload_units > 0
+            except Exception:
+                preload_enabled = False
+
+    if pack is None and preload_enabled:
+        if preload_units is not None:
+            limit = int(max_jpeg_bytes) * int(preload_units)
+        else:
+            if pipeline_preload_limit is None:
+                req_limit = -1
+            else:
+                req_limit = int(pipeline_preload_limit)
+            if req_limit < 0:
+                tmp_frame_hub_buffers = 3 if frame_buffers is None else frame_buffers
+                tmp_io_hub_buffers = tmp_frame_hub_buffers if io_buffers is None else io_buffers
+                mf = 0
+                try:
+                    mf = int(gc.mem_free())
+                except Exception:
+                    mf = 0
+                cap = (mf * 25) // 100 if mf > 0 else 0
+                target = int(max_jpeg_bytes) * int(tmp_io_hub_buffers) * 16
+                limit = target if cap <= 0 else (cap if target > cap else target)
+            else:
+                limit = req_limit
         if limit < 0:
             limit = 0
         total = 0
@@ -162,7 +229,10 @@ def build_bus():
 
     driver_name = tft_cfg.get("driver", "GC9A01")
     disp_rotation = int(tft_cfg.get("rotation", 0))
-    color_order = tft_cfg.get("color_order", "RGB")
+    if tft_order is not None:
+        color_order = tft_order
+    else:
+        color_order = tft_cfg.get("color_order", "RGB")
     invert = bool(tft_cfg.get("invert", True))
 
     tft_mod = __import__("lib.TFT", None, None, ["*"])
@@ -178,9 +248,9 @@ def build_bus():
         rotation=disp_rotation,
         color_order=color_order,
         invert=invert,
+        pixel_format=pixel_format,
+        bytes_per_pixel=bytes_per_pixel,
     )
-    write_chunk = int(tft_cfg.get("write_chunk", 32768) or 0)
-    lcd.write_chunk = write_chunk
     lcd.set_window(0, 0)
 
     bus = SysBus()
@@ -188,11 +258,19 @@ def build_bus():
     bus.shared["debug"] = debug
     bus.shared["width"] = width
     bus.shared["height"] = height
-    bus.shared["frame_bytes"] = compute_max_frame_size(paths, default_bytes=width * height * 2)
+    bus.shared["pixel_format"] = pixel_format
+    bus.shared["bytes_per_pixel"] = bytes_per_pixel
+    bus.shared["display_Layout"] = layouts
+    bus.shared["frame_bytes"] = compute_max_frame_size(
+        paths,
+        default_bytes=width * height,
+        bytes_per_pixel=bytes_per_pixel,
+    )
     bus.shared["max_jpeg_bytes"] = max_jpeg_bytes
     bus.shared["jpeg_block"] = block
     bus.shared["jpeg_step_blocks"] = step_blocks
     bus.shared["pace_ms"] = pace_ms
+    bus.shared["pace_frames"] = pace_frames
     bus.shared["loop_play"] = loop_play
     bus.shared["pipeline_io_buffers"] = io_buffers
     bus.shared["pipeline_frame_buffers"] = frame_buffers
@@ -229,9 +307,59 @@ def build_bus():
     bus.set_service("frame_hub", frame_hub)
     bus.set_service("io_hub", io_hub)
 
-    io_prefetch = (io_hub_buffers - 1) if pipeline_io_prefetch is None else int(pipeline_io_prefetch)
-    if io_prefetch < 0:
-        io_prefetch = 0
+    pipeline_compose = pipeline_cfg.get("compose", None)
+    pipeline_compose_buffers = pipeline_cfg.get("compose_buffers", None)
+    if pipeline_compose_buffers is not None:
+        compose_buffers = int(pipeline_compose_buffers)
+    elif isinstance(pipeline_compose, bool):
+        compose_buffers = frame_hub_buffers if pipeline_compose else 0
+    elif pipeline_compose is None:
+        compose_buffers = 0
+    else:
+        try:
+            compose_buffers = int(pipeline_compose)
+        except Exception:
+            compose_buffers = 0
+    if compose_buffers < 0:
+        compose_buffers = 0
+    bus.shared["compose_buffers"] = compose_buffers
+    if compose_buffers > 0:
+        size = int(bus.shared["frame_bytes"]) + int(frame_tail)
+        bufs = [bytearray(size) for _ in range(compose_buffers)]
+        mvs = [memoryview(b) for b in bufs]
+        ring = {"bufs": bufs, "mvs": mvs, "w": 0}
+        if bytes_per_pixel == 2 and bool(pipeline_cfg.get("compose_framebuf", True)):
+            try:
+                import framebuf
+                fbs = [
+                    framebuf.FrameBuffer(b, width, height, framebuf.RGB565)
+                    for b in bufs
+                ]
+                ring["fbs"] = fbs
+            except Exception:
+                pass
+        bus.set_service("compose_ring", ring)
+    else:
+        bus.set_service("compose_ring", None)
+
+    user_compose = None
+    try:
+        import user_compose as _uc
+        if hasattr(_uc, "compose"):
+            user_compose = _uc
+    except Exception:
+        user_compose = None
+    bus.set_service("user_compose", user_compose)
+
+    # Folder I/O jitter is higher than pack; keep queue fuller by default.
+    default_prefetch = -1 if pack is None else -2
+    raw_prefetch = default_prefetch if pipeline_io_prefetch is None else int(pipeline_io_prefetch)
+    if raw_prefetch < 0:
+        io_prefetch = io_hub_buffers + raw_prefetch
+        if pipeline_io_prefetch is None and io_prefetch < 1 and io_hub_buffers > 0:
+            io_prefetch = 1
+    else:
+        io_prefetch = raw_prefetch
     if io_prefetch > io_hub_buffers:
         io_prefetch = io_hub_buffers
     bus.shared["io_prefetch"] = io_prefetch

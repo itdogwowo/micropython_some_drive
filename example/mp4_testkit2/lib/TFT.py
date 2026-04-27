@@ -86,13 +86,15 @@ class VideoStreamReader:
 
 # ====== 通用TFT驅動類 ======
 class TFT:
-    def __init__(self, spi, dc, cs, rst, width, height):
+    def __init__(self, spi, dc, cs, rst, width, height, pixel_format="RGB565_BE", bytes_per_pixel=2):
         self.spi = spi
         self.dc = dc
         self.cs = cs
         self.rst = rst
         self.width = width
         self.height = height
+        self.pixel_format = pixel_format
+        self.bytes_per_pixel = int(bytes_per_pixel)
         self._rotation = 0
         self._color_order = "RGB"  # 預設顏色順序
         self._inverted = False     # 顏色反轉狀態
@@ -105,6 +107,19 @@ class TFT:
         
         self.reset()
         _sleep_ms(100)
+    
+    def _bytes_per_pixel(self):
+        bpp = getattr(self, "bytes_per_pixel", 2)
+        return 3 if int(bpp) >= 3 else 2
+    
+    def _colmod_value_for_bpp(self, bpp):
+        if int(bpp) >= 3:
+            return 0x66
+        return 0x55
+    
+    def _get_colmod_cmd(self):
+        bpp = self._bytes_per_pixel()
+        return bytes([self._colmod_value_for_bpp(bpp)])
     
     def reset(self):
         """硬體重置顯示器"""
@@ -124,13 +139,7 @@ class TFT:
         """寫入數據到顯示器"""
         self.dc(1)
         self.cs(0)
-        chunk = int(getattr(self, "write_chunk", 0) or 0)
-        if chunk > 0 and len(data) > chunk:
-            mv = memoryview(data)
-            for off in range(0, len(mv), chunk):
-                self.spi.write(mv[off:off + chunk])
-        else:
-            self.spi.write(data)
+        self.spi.write(data)
         self.cs(1)
     
     def write_cmd_data(self, cmd, data):
@@ -263,12 +272,17 @@ class TFT:
 
 
 class ST7735(TFT):
-    def __init__(self, spi, dc, cs, rst, width, height, rotation=0, color_order="RGB", invert=False):
-        super().__init__(spi, dc, cs, rst, width, height)
+    def __init__(self, spi, dc, cs, rst, width, height, rotation=0, color_order="RGB", invert=False, pixel_format="RGB565_BE", bytes_per_pixel=2):
+        super().__init__(spi, dc, cs, rst, width, height, pixel_format=pixel_format, bytes_per_pixel=bytes_per_pixel)
         self._rotation = rotation
         self._color_order = color_order.upper()
         self._inverted = invert
         self.init()
+    
+    def _colmod_value_for_bpp(self, bpp):
+        if int(bpp) >= 3:
+            return 0x06
+        return 0x05
     
     def init(self):
         init_cmds = [
@@ -284,7 +298,7 @@ class ST7735(TFT):
             (0xC3, b'\x8A\x2A'),
             (0xC4, b'\x8A\xEE'),
             (0x36, self._get_madctl_cmd()),    # 內存訪問控制
-            (0x3A, b'\x05'),    # 16位像素
+            (0x3A, self._get_colmod_cmd()),
             (self._get_inversion_cmd(), None), # 顯示反轉
             (0x29, None)        # 開啟顯示
         ]
@@ -331,8 +345,8 @@ class ST7735(TFT):
 
 
 class ST7789(TFT):
-    def __init__(self, spi, dc, cs, rst, width, height, rotation=0, color_order="RGB", invert=False):
-        super().__init__(spi, dc, cs, rst, width, height)
+    def __init__(self, spi, dc, cs, rst, width, height, rotation=0, color_order="RGB", invert=False, pixel_format="RGB565_BE", bytes_per_pixel=2):
+        super().__init__(spi, dc, cs, rst, width, height, pixel_format=pixel_format, bytes_per_pixel=bytes_per_pixel)
         self._rotation = rotation
         self._color_order = color_order.upper()
         self._inverted = invert
@@ -342,7 +356,7 @@ class ST7789(TFT):
         init_cmds = [
             (0x01, None),       # 軟復位
             (0x11, None),       # 退出睡眠模式
-            (0x3A, b'\x55'),    # 16位像素
+            (0x3A, self._get_colmod_cmd()),
             (0x36, self._get_madctl_cmd()),    # 內存訪問控制
             (0xB2, b'\x0C\x0C\x00\x33\x33'),
             (0xB7, b'\x35'),    # 門控制
@@ -400,15 +414,15 @@ class ST7789(TFT):
 
 class ST7789T3(ST7789):
     """ST7789T3 變體驅動，可能有一些特定的初始化參數"""
-    def __init__(self, spi, dc, cs, rst, width=240, height=240, rotation=0, color_order="RGB", invert=False):
-        super().__init__(spi, dc, cs, rst, width, height, rotation, color_order, invert)
+    def __init__(self, spi, dc, cs, rst, width=240, height=240, rotation=0, color_order="RGB", invert=False, pixel_format="RGB565_BE", bytes_per_pixel=2):
+        super().__init__(spi, dc, cs, rst, width, height, rotation, color_order, invert, pixel_format=pixel_format, bytes_per_pixel=bytes_per_pixel)
     
     def init(self):
         # ST7789T3 可能有不同的初始化序列
         init_cmds = [
             (0x01, None),       # 軟復位
             (0x11, None),       # 退出睡眠模式
-            (0x3A, b'\x55'),    # 16位像素
+            (0x3A, self._get_colmod_cmd()),
             (0x36, self._get_madctl_cmd()),    # 內存訪問控制
             (0xB2, b'\x0C\x0C\x00\x33\x33'),   # 門控制
             (0xB7, b'\x35'),    # 門控制
@@ -431,8 +445,8 @@ class ST7789T3(ST7789):
 
 
 class GC9A01(TFT):
-    def __init__(self, spi, dc, cs, rst, width, height, rotation=0, color_order="RGB", invert=False):
-        super().__init__(spi, dc, cs, rst, width, height)
+    def __init__(self, spi, dc, cs, rst, width, height, rotation=0, color_order="RGB", invert=False, pixel_format="RGB565_BE", bytes_per_pixel=2):
+        super().__init__(spi, dc, cs, rst, width, height, pixel_format=pixel_format, bytes_per_pixel=bytes_per_pixel)
         self._rotation = rotation
         self._color_order = color_order.upper()
         self._inverted = invert
@@ -458,7 +472,7 @@ class GC9A01(TFT):
             (0x8E, b'\xFF'),     # COM腳掃描
             (0x8F, b'\xFF'),     # COM腳配置
             (0xB6, b'\x00\x00'), # 顯示功能控制
-            (0x3A, b'\x55'),     # 像素格式 (16-bits/pixel)
+            (0x3A, self._get_colmod_cmd()),
             (0x90, b'\x08\x08\x08\x08'),  # 框架速率控制
             (0xBD, b'\x06'),     # 命令保護
             (0xBC, b'\x00'),     # 接口模式
@@ -533,8 +547,8 @@ class GC9A01(TFT):
 
 
 class ILI9341(TFT):
-    def __init__(self, spi, dc, cs, rst, width=240, height=320, rotation=0, color_order="RGB", invert=False):
-        super().__init__(spi, dc, cs, rst, width, height)
+    def __init__(self, spi, dc, cs, rst, width=240, height=320, rotation=0, color_order="RGB", invert=False, pixel_format="RGB565_BE", bytes_per_pixel=2):
+        super().__init__(spi, dc, cs, rst, width, height, pixel_format=pixel_format, bytes_per_pixel=bytes_per_pixel)
         self._rotation = rotation
         self._color_order = color_order.upper()
         self._inverted = invert
@@ -562,7 +576,7 @@ class ILI9341(TFT):
             (0xC5, b'\x3E\x28'),         # VCOM控制1
             (0xC7, b'\x86'),             # VCOM控制2
             (0x36, self._get_madctl_cmd()),  # 記憶體存取控制
-            (0x3A, b'\x55'),             # 像素格式 (16位)
+            (0x3A, self._get_colmod_cmd()),
             (0xB1, b'\x00\x18'),         # 幀率控制
             (0xB6, b'\x08\x82\x27'),     # 顯示功能控制
             (0xF2, b'\x00'),             # 3G控制 (禁用)
@@ -620,12 +634,17 @@ class ILI9341(TFT):
         
         
 class GC9D01(TFT):
-    def __init__(self, spi, dc, cs, rst, width=240, height=240, rotation=0, color_order="RGB", invert=False):
-        super().__init__(spi, dc, cs, rst, width, height)
+    def __init__(self, spi, dc, cs, rst, width=240, height=240, rotation=0, color_order="RGB", invert=False, pixel_format="RGB565_BE", bytes_per_pixel=2):
+        super().__init__(spi, dc, cs, rst, width, height, pixel_format=pixel_format, bytes_per_pixel=bytes_per_pixel)
         self._rotation = rotation
         self._color_order = color_order.upper()
         self._inverted = invert
         self.init()
+    
+    def _colmod_value_for_bpp(self, bpp):
+        if int(bpp) >= 3:
+            return 0x06
+        return 0x05
     
     def init(self):
         # 根據您提供的初始化序列重新編寫
@@ -639,7 +658,7 @@ class GC9D01(TFT):
             (0x88, b'\xFF'), (0x89, b'\xFF'), (0x8A, b'\xFF'), (0x8B, b'\xFF'),
             (0x8C, b'\xFF'), (0x8D, b'\xFF'), (0x8E, b'\xFF'), (0x8F, b'\xFF'),
             
-            (0x3A, b'\x05'),    # 像素格式設置 (16位RGB565)
+            (0x3A, self._get_colmod_cmd()),
             (0xEC, b'\x01'),    # 未知功能設置
             
             # 複雜的寄存器配置

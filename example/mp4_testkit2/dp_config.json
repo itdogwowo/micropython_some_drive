@@ -2,13 +2,12 @@
   "assets_pack": "",
   "assets_root": "/sd",
   "tft": {
-    "driver": "GC9A01",
+    "driver": "ST7789",
     "width": 240,
     "height": 320,
     "rotation": 0,
     "color_order": "RGB",
     "invert": true,
-    "write_chunk": 32768,
     "spi": {
       "id": 1,
       "baudrate": 80000000,
@@ -31,25 +30,35 @@
   },
   "display_Layout": [
     {
+      "layout": 0,
       "type": "background",
       "height": 240,
       "width": 320,
       "x": 0,
       "y": 0,
       "depth": -1
+    },
+    {
+      "layout": 100,
+      "type": "text",
+      "height": 0,
+      "width": 0,
+      "x": 0,
+      "y": 0,
+      "depth": 0
     }
   ],
   "player": {
-    "pace_ms": 0,
+    "pace_ms": 33,
+    "pace_frames": 1,
     "autoplay": true,
     "loop": true,
     "pipeline": {
       "io_buffers": 3,
       "frame_buffers": 3,
-      "io_prefetch": 2,
-      "io_read_chunk": 0,
-      "preload": true,
-      "preload_limit_bytes": 524288
+      "preload": 16,
+      "compose_buffers": 3,
+      "compose_framebuf": true
     },
     "stats": {
       "enabled": true,
