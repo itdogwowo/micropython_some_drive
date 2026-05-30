@@ -11,14 +11,31 @@ import os, time, urandom
 #             data=(39, 40, 41, 42),
 #             freq=40_000_000)
 
+#     "config": { "slot": 4, "width": 4, "freq": 20000000 },
+#     "GPIO": {
+#         "_comment": "sck=CLK/SCK, cmd=CMD/MOSI, [D0/MISO, D1/IRQ, D2/NC, D3/CS]",
+#         "sck": 14,
+#         "cmd": 17,
+#         "data": [16, 18, 15, 21]
+#         }
+#     }
+        
+# sd = SDCard(slot=2, width=4,
+#             sck=14, cmd=17,
+#             data=(16, 18, 15, 21),
+#             freq=10_000_000)
 
-sd = SDCard(slot=0, width=4,
-            sck=7, cmd=6,
-            data=(5, 4, 16, 15),
-            freq=40_000_000)
+# sd = SDCard(slot=2, width=1,  sck=14, miso=16, mosi=17,cs=21,  freq=20000000)
 
-os.mount(sd, '/sd')
+
+# sd = SDCard(slot=0, width=4,
+#             sck=7, cmd=6,
+#             data=(15, 16, 4, 5),
+#             freq=40_000_000)
+# 
+# os.mount(sd, '/sd')
 root_phat = '/sd'
+print('ok')
 # root_phat = ''
 
 # ===== 2. 測試參數 =====
