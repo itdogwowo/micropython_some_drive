@@ -12,8 +12,8 @@ from lib.sys_bus import bus
 
 # ═══ 內部狀態 ═══
 _lcd = None
-_w = 0
-_h = 0
+_w = 240
+_h = 320
 _manual_w = 0
 _manual_h = 0
 

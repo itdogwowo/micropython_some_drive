@@ -3,11 +3,14 @@ import os
 from lib.sys_bus import bus
 from lib.log_service import get_log
 
+# ESP32-S3-Touch-LCD-2.8
+# SDMMC 1-bit mode: CLK=14, CMD=17, D0=16
+# D1/D2/D3 are NC (-1 in ESP-IDF config)
 CONFIG = {
     "phat": "/sd",
     "LDO": {"id": 4, "mv": 3300},
     "config": {"slot": 1, "width": 1, "freq": 20000000},
-    "GPIO": {"sck": 9, "cmd": 42, "data": [8]},
+    "GPIO": {"sck": 14, "cmd": 17, "data": [16]},
 }
 
 def config():
@@ -81,5 +84,6 @@ def gpios():
     if gpio.get("cmd") is not None:
         result[gpio["cmd"]] = "sd_cmd"
     for i, d in enumerate(gpio.get("data", [])):
-        result[d] = "sd_d{}".format(i)
+        if d is not None and d >= 0:
+            result[d] = "sd_d{}".format(i)
     return result

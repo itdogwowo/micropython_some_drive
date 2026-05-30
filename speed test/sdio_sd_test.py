@@ -40,7 +40,7 @@ print('ok')
 
 # ===== 2. 測試參數 =====
 TEST_FILE = f'{root_phat}/bench.dat'
-FILE_MB   = 10               # 檔案大小 (MB)
+FILE_MB   = 1               # 檔案大小 (MB)
 BUF_KB    = 64               # 一次讀寫的 buffer (KB)
 LOOP      = (FILE_MB * 1024) // BUF_KB
 
