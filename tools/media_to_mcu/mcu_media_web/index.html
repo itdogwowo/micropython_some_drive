@@ -30,10 +30,14 @@
       .mediaBox{background:#0b1220;border:1px solid #223146;border-radius:10px;overflow:hidden;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;position:relative}
       .mediaBox video,.mediaBox img,.mediaBox canvas{width:100%;height:100%;object-fit:contain;display:block}
       #srcCanvas{position:absolute;top:10px;right:10px;width:240px;height:135px;max-width:45%;max-height:45%;border:1px solid #223146;border-radius:8px;pointer-events:none;box-shadow:0 10px 24px rgba(0,0,0,.35);z-index:2}
+      .cropOverlay{position:absolute;inset:0;z-index:3;pointer-events:none}
+      .cropFrame{position:absolute;border:2px solid #6aa6ff;border-radius:12px;box-shadow:0 0 0 9999px rgba(0,0,0,.35);pointer-events:auto;cursor:grab;touch-action:none}
+      .cropFrame:active{cursor:grabbing}
       .twoCol{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
       .scrub{display:flex;gap:10px;align-items:center}
       .scrub input[type="range"]{flex:1}
       #scrubLabel{min-width:68px;text-align:center}
+      .scrubMeta{margin-top:10px;display:flex;flex-direction:column;gap:6px}
       .scrubMeta{margin-top:10px;display:flex;flex-direction:column;gap:6px}
       .scrubMeta .line{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;color:#9fb0c0;line-height:1.35}
       .scrubMeta .line:empty{display:none}
@@ -89,6 +93,7 @@
           <select id="cropMode">
             <option value="cover">中心裁切 (Cover)</option>
             <option value="contain">等比例縮放 + 補邊 (Contain)</option>
+            <option value="manual">手動裁切（拖動方框）</option>
           </select>
         </div>
         <div>
@@ -99,6 +104,13 @@
             <option value="180">180°</option>
             <option value="270">270°</option>
           </select>
+        </div>
+        <div id="cropZoomWrap" style="display:none">
+          <label>手動裁切縮放（1 = 原尺寸）</label>
+          <div class="rangeRow">
+            <input id="cropZoom" type="range" value="1.0" min="1.0" max="8.0" step="0.01" />
+            <input id="cropZoomNum" type="number" value="1.0" min="1.0" max="8.0" step="0.01" />
+          </div>
         </div>
       </div>
       <div style="height:10px"></div>
@@ -116,6 +128,9 @@
             <input id="height" type="range" value="240" min="1" max="512" step="1" />
             <input id="heightNum" type="number" value="240" min="1" max="512" step="1" />
           </div>
+        </div>
+        <div style="grid-column:1 / -1">
+          <button id="resetOutSize" type="button">還原輸出寬高＝來源</button>
         </div>
         <div>
           <label>對比度 (1.0 = 不變)</label>
@@ -198,11 +213,14 @@
     <div class="grid2">
       <div class="card">
         <h2>Before（來源）</h2>
-        <div class="mediaBox">
+        <div class="mediaBox" id="srcMediaBox">
           <video id="srcVideo" controls playsinline style="display:none"></video>
           <canvas id="srcCanvas" style="display:none"></canvas>
           <img id="srcImg" alt="" style="display:none" />
           <div id="srcHint" class="muted">請選擇檔案</div>
+          <div id="cropOverlay" class="cropOverlay" style="display:none">
+            <div id="cropFrame" class="cropFrame"></div>
+          </div>
         </div>
       </div>
 

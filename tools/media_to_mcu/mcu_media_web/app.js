@@ -35,6 +35,18 @@ let _lastPreviewSyncAt = 0;
 let _afterPreviewSeq = 0;
 let _convertPreviewPct = -1;
 let _convertPreviewAt = 0;
+let _srcW = 0;
+let _srcH = 0;
+let _cropCx = 0.5;
+let _cropCy = 0.5;
+let _cropZoom = 1.0;
+let _cropDrag = null;
+let _userSetOutputSize = false;
+let _lastImgBitmap = null;
+let _lastImgBitmapIndex = -1;
+let _defaultOutW = 0;
+let _defaultOutH = 0;
+let _hasDefaultOutSize = false;
 
 const PHOTO_WORKER_CODE = `self.onmessage = async (e) => {
   const d = e.data || {};
@@ -46,7 +58,10 @@ const PHOTO_WORKER_CODE = `self.onmessage = async (e) => {
     const w = Math.max(1, d.w | 0);
     const h = Math.max(1, d.h | 0);
     const rotate = (d.rotate | 0) || 0;
-    const cropMode = d.cropMode === "contain" ? "contain" : "cover";
+    const cropMode = d.cropMode === "contain" ? "contain" : d.cropMode === "manual" ? "manual" : "cover";
+    const cropCx = typeof d.cropCx === "number" ? d.cropCx : parseFloat(String(d.cropCx || "0.5"));
+    const cropCy = typeof d.cropCy === "number" ? d.cropCy : parseFloat(String(d.cropCy || "0.5"));
+    const cropZoom = typeof d.cropZoom === "number" ? d.cropZoom : parseFloat(String(d.cropZoom || "1.0"));
     const contrast = typeof d.contrast === "number" ? d.contrast : parseFloat(String(d.contrast || "1"));
     const quality = Math.min(100, Math.max(1, d.quality | 0));
     const maxBytes = Math.max(0, d.maxBytes | 0);
@@ -67,14 +82,40 @@ const PHOTO_WORKER_CODE = `self.onmessage = async (e) => {
       ctx.translate(-w / 2, -h / 2);
     }
     ctx.filter = Math.abs(contrast - 1.0) < 1e-6 ? "none" : \`contrast(\${Math.max(0.1, contrast) * 100}%)\`;
-    const sx = bmp.width;
-    const sy = bmp.height;
-    const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
-    const dw = sx * scale;
-    const dh = sy * scale;
-    const dx = (w - dw) / 2;
-    const dy = (h - dh) / 2;
-    ctx.drawImage(bmp, dx, dy, dw, dh);
+    const iw = bmp.width;
+    const ih = bmp.height;
+    if (cropMode === "manual") {
+      const aspect = w / h;
+      const srcAspect = iw / ih;
+      let baseW = iw;
+      let baseH = ih;
+      if (srcAspect > aspect) {
+        baseH = ih;
+        baseW = ih * aspect;
+      } else {
+        baseW = iw;
+        baseH = iw / aspect;
+      }
+      const z = Math.max(1, isFinite(cropZoom) ? cropZoom : 1);
+      const sw = Math.max(1, Math.min(iw, baseW / z));
+      const sh = Math.max(1, Math.min(ih, baseH / z));
+      const halfW = sw / 2;
+      const halfH = sh / 2;
+      let cx = (isFinite(cropCx) ? cropCx : 0.5) * iw;
+      let cy = (isFinite(cropCy) ? cropCy : 0.5) * ih;
+      cx = Math.max(halfW, Math.min(iw - halfW, cx));
+      cy = Math.max(halfH, Math.min(ih - halfH, cy));
+      const sx = cx - halfW;
+      const sy = cy - halfH;
+      ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, w, h);
+    } else {
+      const scale = cropMode === "contain" ? Math.min(w / iw, h / ih) : Math.max(w / iw, h / ih);
+      const dw = iw * scale;
+      const dh = ih * scale;
+      const dx = (w - dw) / 2;
+      const dy = (h - dh) / 2;
+      ctx.drawImage(bmp, dx, dy, dw, dh);
+    }
     ctx.restore();
     let blob;
     if (typeof canvas.convertToBlob === "function") {
@@ -560,6 +601,18 @@ async function extractJpegsFromJpk(jpkFile) {
 function setPicked(newFiles) {
   const seq = ++_pickSeq;
   (async () => {
+    _userSetOutputSize = false;
+    _cropCx = 0.5;
+    _cropCy = 0.5;
+    _cropZoom = 1.0;
+    setCropZoomUI(_cropZoom);
+    setSourceSize(0, 0);
+    _lastImgBitmap = null;
+    _lastImgBitmapIndex = -1;
+    _defaultOutW = 0;
+    _defaultOutH = 0;
+    _hasDefaultOutSize = false;
+    updateCropOverlay();
     const deduped = dedupeFiles(newFiles.slice());
     const isIgnoredFile = (f) => {
       const lower = String(f.name || "").toLowerCase();
@@ -681,7 +734,162 @@ function params() {
     video_parallel: $("videoParallel") ? $("videoParallel").value : "4",
     video_start_frame: $("videoStartFrame") ? $("videoStartFrame").value : "0",
     video_end_frame: $("videoEndFrame") ? $("videoEndFrame").value : "0",
+    crop_cx: String(_cropCx),
+    crop_cy: String(_cropCy),
+    crop_zoom: String(_cropZoom),
   };
+}
+
+function clamp01(v) {
+  const x = Number(v);
+  if (!isFinite(x)) return 0;
+  return Math.max(0, Math.min(1, x));
+}
+
+function calcManualCropRect(srcW, srcH, outW, outH, cx01, cy01, zoom) {
+  const sw = Math.max(1, Number(srcW) || 1);
+  const sh = Math.max(1, Number(srcH) || 1);
+  const w = Math.max(1, Number(outW) || 1);
+  const h = Math.max(1, Number(outH) || 1);
+  const aspect = w / h;
+  const srcAspect = sw / sh;
+  let baseW = sw;
+  let baseH = sh;
+  if (srcAspect > aspect) {
+    baseH = sh;
+    baseW = sh * aspect;
+  } else {
+    baseW = sw;
+    baseH = sw / aspect;
+  }
+  const z = Math.max(1, Number(zoom) || 1);
+  const cropW = Math.max(1, Math.min(sw, baseW / z));
+  const cropH = Math.max(1, Math.min(sh, baseH / z));
+  const halfW = cropW / 2;
+  const halfH = cropH / 2;
+  let cx = clamp01(cx01) * sw;
+  let cy = clamp01(cy01) * sh;
+  cx = Math.max(halfW, Math.min(sw - halfW, cx));
+  cy = Math.max(halfH, Math.min(sh - halfH, cy));
+  return { sx: cx - halfW, sy: cy - halfH, sw: cropW, sh: cropH, cx: cx / sw, cy: cy / sh };
+}
+
+function setSourceSize(w, h) {
+  const sw = Math.round(Number(w) || 0);
+  const sh = Math.round(Number(h) || 0);
+  if (sw > 0 && sh > 0) {
+    _srcW = sw;
+    _srcH = sh;
+    return;
+  }
+  _srcW = 0;
+  _srcH = 0;
+}
+
+function setOutputSizeConstraints(sw, sh) {
+  const wEl = $("width");
+  const hEl = $("height");
+  const wn = $("widthNum");
+  const hn = $("heightNum");
+  if (!wEl || !hEl || !wn || !hn) return;
+  const curWMax = Math.max(1, parseInt(wEl.max || "0", 10) || 0);
+  const curHMax = Math.max(1, parseInt(hEl.max || "0", 10) || 0);
+  const nextWMax = Math.max(curWMax, Math.max(1, sw | 0));
+  const nextHMax = Math.max(curHMax, Math.max(1, sh | 0));
+  wEl.max = String(nextWMax);
+  hEl.max = String(nextHMax);
+  wn.max = String(nextWMax);
+  hn.max = String(nextHMax);
+}
+
+function maybeAutoSetOutputSizeFromSource(sw, sh) {
+  setOutputSizeConstraints(sw, sh);
+  if (_hasDefaultOutSize) return;
+  _defaultOutW = Math.max(1, Math.round(Number(sw) || 0));
+  _defaultOutH = Math.max(1, Math.round(Number(sh) || 0));
+  _hasDefaultOutSize = true;
+  if (_userSetOutputSize) return;
+  const wEl = $("width");
+  const hEl = $("height");
+  const wn = $("widthNum");
+  const hn = $("heightNum");
+  if (!wEl || !hEl || !wn || !hn) return;
+  const w = clampToInput(wEl, _defaultOutW);
+  const h = clampToInput(hEl, _defaultOutH);
+  wEl.value = String(w);
+  wn.value = String(w);
+  hEl.value = String(h);
+  hn.value = String(h);
+}
+
+function updateCropUIVisibility() {
+  const isManual = $("cropMode") && $("cropMode").value === "manual";
+  const zw = $("cropZoomWrap");
+  const ov = $("cropOverlay");
+  if (zw) zw.style.display = isManual ? "block" : "none";
+  if (ov) ov.style.display = isManual && _srcW > 0 && _srcH > 0 ? "block" : "none";
+}
+
+function getActiveSourceEl() {
+  if (mode === "video") return $("srcVideo");
+  if (mode === "photo") return $("srcImg");
+  return null;
+}
+
+function getContainRect(containerW, containerH, srcW, srcH) {
+  const cw = Math.max(1, containerW);
+  const ch = Math.max(1, containerH);
+  const sw = Math.max(1, srcW);
+  const sh = Math.max(1, srcH);
+  const containerAspect = cw / ch;
+  const srcAspect = sw / sh;
+  let w = cw;
+  let h = ch;
+  if (srcAspect > containerAspect) {
+    w = cw;
+    h = cw / srcAspect;
+  } else {
+    h = ch;
+    w = ch * srcAspect;
+  }
+  const x = (cw - w) / 2;
+  const y = (ch - h) / 2;
+  return { x, y, w, h };
+}
+
+function setCropZoomUI(z) {
+  const zr = $("cropZoom");
+  const zn = $("cropZoomNum");
+  if (!zr || !zn) return;
+  const v = clampToInput(zr, z);
+  zr.value = String(v);
+  zn.value = String(v);
+}
+
+function updateCropOverlay() {
+  updateCropUIVisibility();
+  if ($("cropMode") && $("cropMode").value !== "manual") return;
+  const frame = $("cropFrame");
+  const overlay = $("cropOverlay");
+  const srcEl = getActiveSourceEl();
+  if (!frame || !overlay || !srcEl) return;
+  if (_srcW <= 0 || _srcH <= 0) return;
+  const p = params();
+  const outW = Math.max(1, parseInt(p.width || "1", 10));
+  const outH = Math.max(1, parseInt(p.height || "1", 10));
+  const r = calcManualCropRect(_srcW, _srcH, outW, outH, _cropCx, _cropCy, _cropZoom);
+  _cropCx = r.cx;
+  _cropCy = r.cy;
+  const box = overlay.getBoundingClientRect();
+  const fit = getContainRect(box.width, box.height, _srcW, _srcH);
+  const left = fit.x + (r.sx / _srcW) * fit.w;
+  const top = fit.y + (r.sy / _srcH) * fit.h;
+  const width = (r.sw / _srcW) * fit.w;
+  const height = (r.sh / _srcH) * fit.h;
+  frame.style.left = `${left}px`;
+  frame.style.top = `${top}px`;
+  frame.style.width = `${width}px`;
+  frame.style.height = `${height}px`;
 }
 
 function clampToInput(el, value) {
@@ -733,6 +941,7 @@ function initRanges() {
   linkRangeAndNumber("frameStep", "frameStepNum");
   linkRangeAndNumber("videoParallel", "videoParallelNum");
   linkRangeAndNumber("contrast", "contrastNum", (v) => Number(v).toFixed(2));
+  linkRangeAndNumber("cropZoom", "cropZoomNum", (v) => Number(v).toFixed(2));
   const fs = $("frameStep");
   const fsn = $("frameStepNum");
   const onOutChange = () => updateFpsInfo();
@@ -1302,18 +1511,33 @@ function renderImageAfter(imgBitmap) {
   tctx.filter = Math.abs(contrast - 1.0) < 1e-6 ? "none" : `contrast(${Math.max(0.1, contrast) * 100}%)`;
   const sx = imgBitmap.width;
   const sy = imgBitmap.height;
-  const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
-  const dw = sx * scale;
-  const dh = sy * scale;
-  const dx = (w - dw) / 2;
-  const dy = (h - dh) / 2;
-  tctx.drawImage(imgBitmap, dx, dy, dw, dh);
+  if (cropMode === "manual") {
+    const r = calcManualCropRect(sx, sy, w, h, parseFloat(p.crop_cx || "0.5"), parseFloat(p.crop_cy || "0.5"), parseFloat(p.crop_zoom || "1.0"));
+    tctx.drawImage(imgBitmap, r.sx, r.sy, r.sw, r.sh, 0, 0, w, h);
+  } else {
+    const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
+    const dw = sx * scale;
+    const dh = sy * scale;
+    const dx = (w - dw) / 2;
+    const dy = (h - dh) / 2;
+    tctx.drawImage(imgBitmap, dx, dy, dw, dh);
+  }
   tctx.restore();
 
   const out = $("dstCanvas");
   canvasSizeToElement(out);
   const octx = out.getContext("2d");
   drawFit(octx, tmp, out.width, out.height);
+  updateCropOverlay();
+}
+
+function rerenderCurrentPhotoAfter() {
+  if (_lastImgBitmap && _lastImgBitmapIndex === imageIndex) {
+    renderImageAfter(_lastImgBitmap);
+    updateScrubUI();
+    return;
+  }
+  showImageAt(imageIndex);
 }
 
 function downloadBlob(blob, name) {
@@ -1506,12 +1730,17 @@ async function renderImageToJpegBlob(file, p) {
   ctx.filter = Math.abs(contrast - 1.0) < 1e-6 ? "none" : `contrast(${Math.max(0.1, contrast) * 100}%)`;
   const sx = bmp.width;
   const sy = bmp.height;
-  const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
-  const dw = sx * scale;
-  const dh = sy * scale;
-  const dx = (w - dw) / 2;
-  const dy = (h - dh) / 2;
-  ctx.drawImage(bmp, dx, dy, dw, dh);
+  if (cropMode === "manual") {
+    const r = calcManualCropRect(sx, sy, w, h, parseFloat(p.crop_cx || "0.5"), parseFloat(p.crop_cy || "0.5"), parseFloat(p.crop_zoom || "1.0"));
+    ctx.drawImage(bmp, r.sx, r.sy, r.sw, r.sh, 0, 0, w, h);
+  } else {
+    const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
+    const dw = sx * scale;
+    const dh = sy * scale;
+    const dx = (w - dw) / 2;
+    const dy = (h - dh) / 2;
+    ctx.drawImage(bmp, dx, dy, dw, dh);
+  }
   ctx.restore();
 
   const encode = async (q) => {
@@ -1624,12 +1853,18 @@ function renderProcessedFromVideo() {
 
   const sx = v.videoWidth;
   const sy = v.videoHeight;
-  const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
-  const dw = sx * scale;
-  const dh = sy * scale;
-  const dx = (w - dw) / 2;
-  const dy = (h - dh) / 2;
-  tctx.drawImage(v, dx, dy, dw, dh);
+  setSourceSize(sx, sy);
+  if (cropMode === "manual") {
+    const r = calcManualCropRect(sx, sy, w, h, parseFloat(p.crop_cx || "0.5"), parseFloat(p.crop_cy || "0.5"), parseFloat(p.crop_zoom || "1.0"));
+    tctx.drawImage(v, r.sx, r.sy, r.sw, r.sh, 0, 0, w, h);
+  } else {
+    const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
+    const dw = sx * scale;
+    const dh = sy * scale;
+    const dx = (w - dw) / 2;
+    const dy = (h - dh) / 2;
+    tctx.drawImage(v, dx, dy, dw, dh);
+  }
   tctx.restore();
 
   const out = $("dstCanvas");
@@ -1640,6 +1875,7 @@ function renderProcessedFromVideo() {
   octx.fillRect(0, 0, out.width, out.height);
   drawFit(octx, tmp, out.width, out.height);
   updateScrubUI();
+  updateCropOverlay();
 }
 
 function renderProcessedFromVideoEl(v) {
@@ -1668,12 +1904,17 @@ function renderProcessedFromVideoEl(v) {
 
   const sx = v.videoWidth;
   const sy = v.videoHeight;
-  const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
-  const dw = sx * scale;
-  const dh = sy * scale;
-  const dx = (w - dw) / 2;
-  const dy = (h - dh) / 2;
-  tctx.drawImage(v, dx, dy, dw, dh);
+  if (cropMode === "manual") {
+    const r = calcManualCropRect(sx, sy, w, h, parseFloat(p.crop_cx || "0.5"), parseFloat(p.crop_cy || "0.5"), parseFloat(p.crop_zoom || "1.0"));
+    tctx.drawImage(v, r.sx, r.sy, r.sw, r.sh, 0, 0, w, h);
+  } else {
+    const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
+    const dw = sx * scale;
+    const dh = sy * scale;
+    const dx = (w - dw) / 2;
+    const dy = (h - dh) / 2;
+    tctx.drawImage(v, dx, dy, dw, dh);
+  }
   tctx.restore();
 
   const out = $("dstCanvas");
@@ -1850,6 +2091,8 @@ function showImageAt(index) {
   if (!images.length) return;
   const next = Math.max(0, Math.min(images.length - 1, Number(index) || 0));
   imageIndex = next;
+  _lastImgBitmap = null;
+  _lastImgBitmapIndex = -1;
 
   const srcImg = $("srcImg");
   const srcHint = $("srcHint");
@@ -1870,6 +2113,10 @@ function showImageAt(index) {
   srcImg.onload = async () => {
     try {
       const bmp = await createImageBitmap(images[imageIndex]);
+      setSourceSize(bmp.width, bmp.height);
+      maybeAutoSetOutputSizeFromSource(bmp.width, bmp.height);
+      _lastImgBitmap = bmp;
+      _lastImgBitmapIndex = imageIndex;
       renderImageAfter(bmp);
     } catch {
     }
@@ -1943,12 +2190,17 @@ async function renderVideoToJpegBlob(v, p) {
 
   const sx = v.videoWidth || 1;
   const sy = v.videoHeight || 1;
-  const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
-  const dw = sx * scale;
-  const dh = sy * scale;
-  const dx = (w - dw) / 2;
-  const dy = (h - dh) / 2;
-  ctx.drawImage(v, dx, dy, dw, dh);
+  if (cropMode === "manual") {
+    const r = calcManualCropRect(sx, sy, w, h, parseFloat(p.crop_cx || "0.5"), parseFloat(p.crop_cy || "0.5"), parseFloat(p.crop_zoom || "1.0"));
+    ctx.drawImage(v, r.sx, r.sy, r.sw, r.sh, 0, 0, w, h);
+  } else {
+    const scale = cropMode === "contain" ? Math.min(w / sx, h / sy) : Math.max(w / sx, h / sy);
+    const dw = sx * scale;
+    const dh = sy * scale;
+    const dx = (w - dw) / 2;
+    const dy = (h - dh) / 2;
+    ctx.drawImage(v, dx, dy, dw, dh);
+  }
   ctx.restore();
 
   const encode = async (q) => {
@@ -2058,6 +2310,8 @@ async function loadPreview(pickSeq) {
   if (pickSeq !== _pickSeq) return;
   const mode = detectMode(files);
   clearSrc();
+  setSourceSize(0, 0);
+  updateCropOverlay();
   if (pickSeq !== _pickSeq) return;
 
   const srcVideo = $("srcVideo");
@@ -2141,6 +2395,11 @@ async function loadPreview(pickSeq) {
       if (ifr) ifr.value = String(_lastVideoInputFps);
       if (ifn) ifn.value = String(_lastVideoInputFps);
       updateFpsInfo();
+      if (srcVideo.videoWidth && srcVideo.videoHeight) {
+        setSourceSize(srcVideo.videoWidth, srcVideo.videoHeight);
+        maybeAutoSetOutputSizeFromSource(srcVideo.videoWidth, srcVideo.videoHeight);
+        updateCropOverlay();
+      }
       _rangeReset = true;
       updateVideoFrameDomain();
       updateScrubUI();
@@ -2186,6 +2445,9 @@ async function run() {
           const h = Math.max(1, parseInt(p.height || "160", 10));
           const rotate = parseInt(p.rotate || "0", 10) || 0;
           const cropMode = p.crop_mode || "cover";
+          const cropCx = parseFloat(p.crop_cx || "0.5");
+          const cropCy = parseFloat(p.crop_cy || "0.5");
+          const cropZoom = parseFloat(p.crop_zoom || "1.0");
           const contrast = parseFloat(p.contrast || "1.0");
           const quality = Math.min(100, Math.max(1, parseInt(p.quality || "85", 10)));
           const capKb = Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0);
@@ -2195,7 +2457,19 @@ async function run() {
           const out = new Array(indices.length);
           const promises = indices.map((srcIndex, outIndex) =>
             pool
-              .exec({ file: images[srcIndex], w, h, rotate, cropMode, contrast, quality, maxBytes: maxBytesCap })
+              .exec({
+                file: images[srcIndex],
+                w,
+                h,
+                rotate,
+                cropMode,
+                cropCx,
+                cropCy,
+                cropZoom,
+                contrast,
+                quality,
+                maxBytes: maxBytesCap,
+              })
               .then((blob) => {
                 out[outIndex] = blob;
                 if (blob.size > maxBytes) maxBytes = blob.size;
@@ -2307,6 +2581,9 @@ async function run() {
               const h = Math.max(1, parseInt(p.height || "160", 10));
               const rotate = parseInt(p.rotate || "0", 10) || 0;
               const cropMode = p.crop_mode || "cover";
+              const cropCx = parseFloat(p.crop_cx || "0.5");
+              const cropCy = parseFloat(p.crop_cy || "0.5");
+              const cropZoom = parseFloat(p.crop_zoom || "1.0");
               const contrast = parseFloat(p.contrast || "1.0");
               const quality = Math.min(100, Math.max(1, parseInt(p.quality || "85", 10)));
               let bmp = null;
@@ -2329,7 +2606,10 @@ async function run() {
                 continue;
               }
               const task = procPool
-                .execTransfer({ bitmap: bmp, w, h, rotate, cropMode, contrast, quality, maxBytes: maxBytesCap }, [bmp])
+                .execTransfer(
+                  { bitmap: bmp, w, h, rotate, cropMode, cropCx, cropCy, cropZoom, contrast, quality, maxBytes: maxBytesCap },
+                  [bmp]
+                )
                 .then((blob) => {
                   out[item.outIndex] = blob;
                   if (blob.size > maxBytes) maxBytes = blob.size;
@@ -2390,12 +2670,113 @@ async function run() {
 }
 
 $("run").addEventListener("click", run);
-["cropMode", "width", "height", "rotate", "contrast"].forEach((id) =>
+["cropMode", "width", "height", "rotate", "contrast", "cropZoom"].forEach((id) =>
   $(id).addEventListener("input", () => {
-    if (mode === "photo") showImageAt(imageIndex);
+    if (id === "width" || id === "height") _userSetOutputSize = true;
+    if (id === "cropZoom") {
+      _cropZoom = clampToInput($("cropZoom"), $("cropZoom").value);
+      setCropZoomUI(_cropZoom);
+    }
+    if (id === "cropMode") updateCropUIVisibility();
+    if (mode === "photo") rerenderCurrentPhotoAfter();
     if (mode === "video") renderProcessedFromVideo();
+    updateCropOverlay();
   })
 );
+
+$("resetOutSize").addEventListener("click", () => {
+  if (!_defaultOutW || !_defaultOutH) return;
+  const wEl = $("width");
+  const hEl = $("height");
+  const wn = $("widthNum");
+  const hn = $("heightNum");
+  if (!wEl || !hEl || !wn || !hn) return;
+  _userSetOutputSize = false;
+  const w = clampToInput(wEl, _defaultOutW);
+  const h = clampToInput(hEl, _defaultOutH);
+  wEl.value = String(w);
+  wn.value = String(w);
+  hEl.value = String(h);
+  hn.value = String(h);
+  if (mode === "photo") rerenderCurrentPhotoAfter();
+  if (mode === "video") renderProcessedFromVideo();
+  updateCropOverlay();
+});
+
+(() => {
+  const frame = $("cropFrame");
+  const overlay = $("cropOverlay");
+  if (!frame || !overlay) return;
+  const posToSrc = (clientX, clientY) => {
+    const box = overlay.getBoundingClientRect();
+    const x = clientX - box.left;
+    const y = clientY - box.top;
+    const fit = getContainRect(box.width, box.height, _srcW, _srcH);
+    const u = fit.w > 0 ? (x - fit.x) / fit.w : 0;
+    const v = fit.h > 0 ? (y - fit.y) / fit.h : 0;
+    return { x: Math.max(0, Math.min(1, u)) * _srcW, y: Math.max(0, Math.min(1, v)) * _srcH };
+  };
+  frame.addEventListener("pointerdown", (e) => {
+    if (!$("cropMode") || $("cropMode").value !== "manual") return;
+    if (_srcW <= 0 || _srcH <= 0) return;
+    const p = params();
+    const outW = Math.max(1, parseInt(p.width || "1", 10));
+    const outH = Math.max(1, parseInt(p.height || "1", 10));
+    const r = calcManualCropRect(_srcW, _srcH, outW, outH, _cropCx, _cropCy, _cropZoom);
+    const pt = posToSrc(e.clientX, e.clientY);
+    const cx = (r.sx + r.sw / 2);
+    const cy = (r.sy + r.sh / 2);
+    _cropDrag = { id: e.pointerId, dx: pt.x - cx, dy: pt.y - cy };
+    try {
+      frame.setPointerCapture(e.pointerId);
+    } catch {
+    }
+    e.preventDefault();
+  });
+  frame.addEventListener("pointermove", (e) => {
+    if (!_cropDrag || _cropDrag.id !== e.pointerId) return;
+    if (_srcW <= 0 || _srcH <= 0) return;
+    const p = params();
+    const outW = Math.max(1, parseInt(p.width || "1", 10));
+    const outH = Math.max(1, parseInt(p.height || "1", 10));
+    const r0 = calcManualCropRect(_srcW, _srcH, outW, outH, _cropCx, _cropCy, _cropZoom);
+    const pt = posToSrc(e.clientX, e.clientY);
+    const targetCx = (pt.x - _cropDrag.dx) / _srcW;
+    const targetCy = (pt.y - _cropDrag.dy) / _srcH;
+    const r1 = calcManualCropRect(_srcW, _srcH, outW, outH, targetCx, targetCy, _cropZoom);
+    _cropCx = r1.cx;
+    _cropCy = r1.cy;
+    updateCropOverlay();
+    if (mode === "photo") rerenderCurrentPhotoAfter();
+    if (mode === "video") renderProcessedFromVideo();
+    e.preventDefault();
+  });
+  const endDrag = (e) => {
+    if (!_cropDrag || _cropDrag.id !== e.pointerId) return;
+    _cropDrag = null;
+    e.preventDefault();
+  };
+  frame.addEventListener("pointerup", endDrag);
+  frame.addEventListener("pointercancel", endDrag);
+  frame.addEventListener(
+    "wheel",
+    (e) => {
+      if (!$("cropMode") || $("cropMode").value !== "manual") return;
+      const dir = e.deltaY > 0 ? 1 : -1;
+      const zr = $("cropZoom");
+      if (!zr) return;
+      const step = 0.1;
+      const next = _cropZoom * (dir > 0 ? 1 - step : 1 + step);
+      _cropZoom = clampToInput(zr, next);
+      setCropZoomUI(_cropZoom);
+      if (mode === "photo") rerenderCurrentPhotoAfter();
+      if (mode === "video") renderProcessedFromVideo();
+      updateCropOverlay();
+      e.preventDefault();
+    },
+    { passive: false }
+  );
+})();
 
 $("scrub").addEventListener("input", (e) => {
   stopPlayback();
