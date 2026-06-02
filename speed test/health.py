@@ -14,6 +14,10 @@ def _sz(b):
         b //= 1024
     return "{}{}".format(b, "GB")
 
+def _sz2(s):
+    if s >= 1024: return "{:.0f}KB".format(s/1024)
+    return "{:.0f}B".format(s)
+
 def _sys():
     print("── 系統資訊 ──")
     try:
@@ -82,41 +86,56 @@ def _sd(sd):
         print("  Cluster: {}  free: {} / {}".format(_sz(s[0]), _sz(s[3]*s[1]), _sz(s[2]*s[1])))
     except: pass
     gc.collect()
-    b4k = bytearray(4096); b16k = bytearray(16384)
-    for i in range(16384): b16k[i] = i & 0xFF
+    sizes = [4096, 8192, 16384, 32768, 65536]
     try: import urandom; r = urandom.getrandbits
     except: import random; r = random.getrandbits
     max_sec = cap // ss
+    sl = len(sizes)
 
+    hbufs = [bytearray(s) for s in sizes]
+    for i in range(16384): hbufs[2][i] = i & 0xFF
+
+    dbufs = [None] * sl
     try:
         import heap_caps
-        d4k = heap_caps.malloc(4096, heap_caps.CAP_DMA)
-        d16k = heap_caps.malloc(16384, heap_caps.CAP_DMA)
-    except: d4k = d16k = None
+        for i, s in enumerate(sizes):
+            dbufs[i] = heap_caps.malloc(s, heap_caps.CAP_DMA)
+    except:
+        pass
 
     rows = []
-    def _ms(fn, blk, buf, n):
+    def _bm(fn, blk, buf, n):
         t0 = time.ticks_ms()
         for _ in range(n): fn(blk, buf); blk += len(buf) // ss
         return time.ticks_diff(time.ticks_ms(), t0)
 
-    rows.append(("HEAP", "rd", "4KB",  _ms(sd.readblocks, 500000, b4k, 256),  1*1024*1024))
-    rows.append(("HEAP", "rd", "16KB", _ms(sd.readblocks, 520000, b16k, 64),  1*1024*1024))
-    if d4k:  rows.append(("DMA",  "rd", "4KB",  _ms(sd.readblocks, 540000, d4k, 256),  1*1024*1024))
-    else:    rows.append(("DMA",  "—",  "4KB",   0, 0))
-    if d16k: rows.append(("DMA",  "rd", "16KB", _ms(sd.readblocks, 560000, d16k, 64),  1*1024*1024))
-    else:    rows.append(("DMA",  "—",  "16KB",  0, 0))
-    rows.append(("HEAP", "wr", "16KB", _ms(sd.writeblocks, 600000, b16k, 64),  1*1024*1024))
-    if d16k:
-        for i in range(16384): d16k[i] = i & 0xFF
-        rows.append(("DMA", "wr", "16KB", _ms(sd.writeblocks, 620000, d16k, 64), 1*1024*1024))
+    sec = 400000
+    for i, s in enumerate(sizes):
+        n = max(1048576 // s, 4)
+        label = _sz2(s)
+        rows.append(("HEAP","rd",label, _bm(sd.readblocks, sec, hbufs[i], n), n*s))
+        if dbufs[i]:
+            rows.append(("DMA","rd",label, _bm(sd.readblocks, sec+len(sizes), dbufs[i], n), n*s))
+        sec += 200
+
+    sec = 600000
+    for i, s in enumerate(sizes):
+        n = max(524288 // s, 2)
+        label = _sz2(s)
+        for j in range(s): hbufs[i][j] = j & 0xFF
+        rows.append(("HEAP","wr",label, _bm(sd.writeblocks, sec, hbufs[i], n), n*s))
+        if dbufs[i]:
+            for j in range(s): dbufs[i][j] = j & 0xFF
+            rows.append(("DMA","wr",label, _bm(sd.writeblocks, sec+len(sizes), dbufs[i], n), n*s))
+        sec += 200
+
     t0 = time.ticks_ms()
-    for _ in range(1000): sd.readblocks(r(28) % max_sec, b4k)
-    rows.append(("HEAP", "rnd", "4KB", time.ticks_diff(time.ticks_ms(), t0), 4*1000*1000))
-    if d4k:
+    for _ in range(1000): sd.readblocks(r(28) % max_sec, hbufs[0])
+    rows.append(("HEAP","rnd","4KB", time.ticks_diff(time.ticks_ms(), t0), 4*1000*1000))
+    if dbufs[0]:
         t0 = time.ticks_ms()
-        for _ in range(1000): sd.readblocks(r(28) % max_sec, d4k)
-        rows.append(("DMA", "rnd", "4KB", time.ticks_diff(time.ticks_ms(), t0), 4*1000*1000))
+        for _ in range(1000): sd.readblocks(r(28) % max_sec, dbufs[0])
+        rows.append(("DMA","rnd","4KB", time.ticks_diff(time.ticks_ms(), t0), 4*1000*1000))
 
     # VFS 讀取 (從已 mount 的 /sd)
     try:
@@ -152,8 +171,8 @@ def _sd(sd):
     # 釋放 DMA buffer
     try:
         import heap_caps
-        if d4k: heap_caps.free(d4k)
-        if d16k: heap_caps.free(d16k)
+        for d in dbufs:
+            if d: heap_caps.free(d)
     except: pass
 
     print("  " + "─" * 46)
