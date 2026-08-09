@@ -188,6 +188,101 @@ def build_jpk(jpeg_dir: Path, jpk_path: Path) -> tuple[int, int]:
     return len(jpeg_files), max_size
 
 
+def _sidecar_bin_path(jpeg_path: Path, tag: str) -> Path:
+    return jpeg_path.with_name(f"{jpeg_path.stem}.{tag}.bin")
+
+
+def _reorder_rgb888_bytes(rgb_bytes: bytes, order: str) -> bytes:
+    order = (order or "rgb").lower()
+    mapping = {"r": 0, "g": 1, "b": 2}
+    if len(order) != 3 or any(ch not in mapping for ch in order):
+        raise ValueError(f"不支援的顏色次序: {order}")
+    idx = [mapping[ch] for ch in order]
+    if idx == [0, 1, 2]:
+        return rgb_bytes
+    out = bytearray(len(rgb_bytes))
+    for i in range(0, len(rgb_bytes), 3):
+        out[i + 0] = rgb_bytes[i + idx[0]]
+        out[i + 1] = rgb_bytes[i + idx[1]]
+        out[i + 2] = rgb_bytes[i + idx[2]]
+    return bytes(out)
+
+
+def _pack_rgb565_from_rgb888_bytes(
+    rgb_bytes: bytes,
+    order_for_565: str,
+    byteorder: str,
+) -> bytes:
+    order_for_565 = (order_for_565 or "rgb").lower()
+    mapping = {"r": 0, "g": 1, "b": 2}
+    if len(order_for_565) != 3 or any(ch not in mapping for ch in order_for_565):
+        raise ValueError(f"不支援的顏色次序: {order_for_565}")
+    ridx = mapping[order_for_565[0]]
+    gidx = mapping[order_for_565[1]]
+    bidx = mapping[order_for_565[2]]
+    if byteorder not in {"le", "be"}:
+        raise ValueError(f"不支援的 byteorder: {byteorder}")
+
+    out = bytearray((len(rgb_bytes) // 3) * 2)
+    o = 0
+    for i in range(0, len(rgb_bytes), 3):
+        r = rgb_bytes[i + ridx]
+        g = rgb_bytes[i + gidx]
+        b = rgb_bytes[i + bidx]
+        value = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3)
+        if byteorder == "le":
+            out[o] = value & 0xFF
+            out[o + 1] = (value >> 8) & 0xFF
+        else:
+            out[o] = (value >> 8) & 0xFF
+            out[o + 1] = value & 0xFF
+        o += 2
+    return bytes(out)
+
+
+def _cv2_frame_to_rgb_bytes(frame, cv2_module) -> bytes:
+    rgb = cv2_module.cvtColor(frame, cv2_module.COLOR_BGR2RGB)
+    return rgb.tobytes()
+
+
+def _write_frame_bins(
+    *,
+    jpeg_path: Path,
+    rgb_bytes_src: bytes,
+    want_rgb888: bool,
+    want_rgb565: bool,
+    rgb888_order: str,
+    rgb565_order: str,
+    rgb565_byteorder: str,
+) -> None:
+    if want_rgb888:
+        out_path = _sidecar_bin_path(jpeg_path, "rgb888")
+        out_path.write_bytes(_reorder_rgb888_bytes(rgb_bytes_src, rgb888_order))
+    if want_rgb565:
+        out_path = _sidecar_bin_path(jpeg_path, "rgb565")
+        out_path.write_bytes(_pack_rgb565_from_rgb888_bytes(rgb_bytes_src, rgb565_order, rgb565_byteorder))
+
+
+def _concat_bins(
+    *,
+    output_dir: Path,
+    exported: int,
+    digits: int,
+    tag: str,
+    final_path: Path,
+) -> None:
+    with final_path.open("wb") as out:
+        for index in range(exported):
+            jpeg_path = output_dir / f"{index:0{digits}d}.jpeg"
+            sidecar = _sidecar_bin_path(jpeg_path, tag)
+            out.write(sidecar.read_bytes())
+    for index in range(exported):
+        jpeg_path = output_dir / f"{index:0{digits}d}.jpeg"
+        sidecar = _sidecar_bin_path(jpeg_path, tag)
+        if sidecar.exists():
+            sidecar.unlink()
+
+
 def frame_digits(total: int | None = None) -> int:
     if not total or total <= 0:
         return 3
@@ -210,6 +305,11 @@ def convert_photo_one(
     width: int,
     height: int,
     quality: int,
+    want_rgb888: bool,
+    want_rgb565: bool,
+    rgb888_order: str,
+    rgb565_order: str,
+    rgb565_byteorder: str,
 ) -> tuple[bool, str]:
     pil_image_module = import_optional("PIL.Image")
     if pil_image_module is None:
@@ -220,6 +320,18 @@ def convert_photo_one(
             rgb = image.convert("RGB")
             processed = resize_crop_pil(rgb, width, height, pil_image_module)
             processed.save(output_path, format="JPEG", quality=quality, optimize=False)
+            if want_rgb888 or want_rgb565:
+                rgb_bytes = processed.tobytes()
+                jpeg_path = Path(output_path)
+                _write_frame_bins(
+                    jpeg_path=jpeg_path,
+                    rgb_bytes_src=rgb_bytes,
+                    want_rgb888=want_rgb888,
+                    want_rgb565=want_rgb565,
+                    rgb888_order=rgb888_order,
+                    rgb565_order=rgb565_order,
+                    rgb565_byteorder=rgb565_byteorder,
+                )
         return True, ""
     except Exception as exc:
         return False, str(exc)
@@ -452,11 +564,18 @@ class MCUMediaTool:
     def choose_output_paths(self, base_dir: Path) -> tuple[Path, Path] | None:
         output_dir = base_dir / "output"
         jpk_path = base_dir / "output.jpk"
+        base = jpk_path.with_suffix("")
+        rgb888_path = base.with_name(f"{base.name}_rgb888.bin")
+        rgb565_path = base.with_name(f"{base.name}_rgb565.bin")
 
-        if output_dir.exists() or jpk_path.exists():
+        if output_dir.exists() or jpk_path.exists() or rgb888_path.exists() or rgb565_path.exists():
             print("\n偵測到現有輸出:")
             print(f"  - JPEG 目錄: {output_dir}")
             print(f"  - JPK 檔案: {jpk_path}")
+            if rgb888_path.exists():
+                print(f"  - RGB888 BIN: {rgb888_path}")
+            if rgb565_path.exists():
+                print(f"  - RGB565 BIN: {rgb565_path}")
             print("  1. 清空後重新產生")
             print("  2. 建立新的時間戳輸出")
             print("  3. 取消")
@@ -467,16 +586,43 @@ class MCUMediaTool:
                     shutil.rmtree(output_dir)
                 if jpk_path.exists():
                     jpk_path.unlink()
+                if rgb888_path.exists():
+                    rgb888_path.unlink()
+                if rgb565_path.exists():
+                    rgb565_path.unlink()
             elif action == "2":
                 stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_dir = base_dir / f"output_{stamp}"
                 jpk_path = base_dir / f"output_{stamp}.jpk"
+                base = jpk_path.with_suffix("")
+                rgb888_path = base.with_name(f"{base.name}_rgb888.bin")
+                rgb565_path = base.with_name(f"{base.name}_rgb565.bin")
             else:
                 print("已取消本次轉換。")
                 return None
 
         ensure_dir(output_dir)
         return output_dir, jpk_path
+
+    def ask_bin_options(self) -> tuple[bool, bool, str, str, str]:
+        print("\n額外輸出: .bin 原始 RGB 資料")
+        mode = self.prompt_choice("要輸出哪種 .bin", ["none", "rgb888", "rgb565", "both"], default="none")
+        want_rgb888 = mode in {"rgb888", "both"}
+        want_rgb565 = mode in {"rgb565", "both"}
+        if not (want_rgb888 or want_rgb565):
+            return False, False, "rgb", "rgb", "le"
+        orders = ["rgb", "bgr", "grb", "gbr", "rbg", "brg"]
+        rgb888_order = self.prompt_choice("RGB888 顏色次序", orders, default="rgb") if want_rgb888 else "rgb"
+        rgb565_order = self.prompt_choice("RGB565 顏色次序(影響 R/G/B bit 對應)", orders, default="rgb") if want_rgb565 else "rgb"
+        rgb565_byteorder = self.prompt_choice("RGB565 byte order", ["le", "be"], default="le") if want_rgb565 else "le"
+        return want_rgb888, want_rgb565, rgb888_order, rgb565_order, rgb565_byteorder
+
+    def _final_bin_paths(self, jpk_path: Path) -> tuple[Path, Path]:
+        base = jpk_path.with_suffix("")
+        return (
+            base.with_name(f"{base.name}_rgb888.bin"),
+            base.with_name(f"{base.name}_rgb565.bin"),
+        )
 
     def ask_output_size(self, default_width: int, default_height: int) -> tuple[int, int]:
         print(f"建議輸出尺寸: {DEFAULT_WIDTH}x{DEFAULT_HEIGHT}")
@@ -521,6 +667,7 @@ class MCUMediaTool:
 
         width, height = self.ask_output_size(DEFAULT_WIDTH, DEFAULT_HEIGHT)
         quality = self.ask_jpeg_quality()
+        want_rgb888, want_rgb565, rgb888_order, rgb565_order, rgb565_byteorder = self.ask_bin_options()
 
         base_dir = target.parent
         paths = self.choose_output_paths(base_dir)
@@ -553,6 +700,17 @@ class MCUMediaTool:
                     ok = cv2_module.imwrite(str(out_path), processed, [cv2_module.IMWRITE_JPEG_QUALITY, quality])
                     if not ok:
                         raise RuntimeError(f"無法寫入檔案: {out_path}")
+                    if want_rgb888 or want_rgb565:
+                        rgb_bytes = _cv2_frame_to_rgb_bytes(processed, cv2_module)
+                        _write_frame_bins(
+                            jpeg_path=out_path,
+                            rgb_bytes_src=rgb_bytes,
+                            want_rgb888=want_rgb888,
+                            want_rgb565=want_rgb565,
+                            rgb888_order=rgb888_order,
+                            rgb565_order=rgb565_order,
+                            rgb565_byteorder=rgb565_byteorder,
+                        )
                     exported += 1
 
                     if exported == 1 or exported % 25 == 0:
@@ -567,6 +725,17 @@ class MCUMediaTool:
                     )
                     if not ok:
                         raise RuntimeError(f"無法寫入檔案: {out_path}")
+                    if want_rgb888 or want_rgb565:
+                        rgb_bytes = _cv2_frame_to_rgb_bytes(processed, cv2_module)
+                        _write_frame_bins(
+                            jpeg_path=out_path,
+                            rgb_bytes_src=rgb_bytes,
+                            want_rgb888=want_rgb888,
+                            want_rgb565=want_rgb565,
+                            rgb888_order=rgb888_order,
+                            rgb565_order=rgb565_order,
+                            rgb565_byteorder=rgb565_byteorder,
+                        )
                     return int(frame_index)
 
                 pending = set()
@@ -654,12 +823,21 @@ class MCUMediaTool:
             return
 
         packed_count, max_size = build_jpk(output_dir, jpk_path)
+        rgb888_path, rgb565_path = self._final_bin_paths(jpk_path)
+        if want_rgb888:
+            _concat_bins(output_dir=output_dir, exported=exported, digits=digits, tag="rgb888", final_path=rgb888_path)
+        if want_rgb565:
+            _concat_bins(output_dir=output_dir, exported=exported, digits=digits, tag="rgb565", final_path=rgb565_path)
         print("\n完成。")
         print(f"  - JPEG 張數: {exported}")
         print(f"  - JPEG 目錄: {output_dir}")
         print(f"  - JPK 檔案: {jpk_path}")
         print(f"  - JPK 幀數: {packed_count}")
         print(f"  - 最大 JPEG bytes: {max_size}")
+        if want_rgb888:
+            print(f"  - RGB888 BIN: {rgb888_path}")
+        if want_rgb565:
+            print(f"  - RGB565 BIN: {rgb565_path}")
 
     def handle_photo_conversion(self) -> None:
         if not self.require_for_action("photo"):
@@ -690,6 +868,7 @@ class MCUMediaTool:
 
         width, height = self.ask_output_size(default_width, default_height)
         quality = self.ask_jpeg_quality()
+        want_rgb888, want_rgb565, rgb888_order, rgb565_order, rgb565_byteorder = self.ask_bin_options()
 
         base_dir = target if target.is_dir() else target.parent
         paths = self.choose_output_paths(base_dir)
@@ -716,6 +895,17 @@ class MCUMediaTool:
                         processed = resize_crop_pil(rgb, width, height, pil_image_module)
                         out_path = output_dir / f"{exported:0{digits}d}.jpeg"
                         processed.save(out_path, format="JPEG", quality=quality, optimize=False)
+                        if want_rgb888 or want_rgb565:
+                            rgb_bytes = processed.tobytes()
+                            _write_frame_bins(
+                                jpeg_path=out_path,
+                                rgb_bytes_src=rgb_bytes,
+                                want_rgb888=want_rgb888,
+                                want_rgb565=want_rgb565,
+                                rgb888_order=rgb888_order,
+                                rgb565_order=rgb565_order,
+                                rgb565_byteorder=rgb565_byteorder,
+                            )
                         exported += 1
                 except Exception as exc:
                     print(f"  跳過 {file_path.name}: {exc}")
@@ -750,6 +940,11 @@ class MCUMediaTool:
                         width,
                         height,
                         quality,
+                        want_rgb888,
+                        want_rgb565,
+                        rgb888_order,
+                        rgb565_order,
+                        rgb565_byteorder,
                     )
                     pending[fut] = (index, file_path, temp_path)
                     submitted += 1
@@ -781,6 +976,11 @@ class MCUMediaTool:
                             width,
                             height,
                             quality,
+                            want_rgb888,
+                            want_rgb565,
+                            rgb888_order,
+                            rgb565_order,
+                            rgb565_byteorder,
                         )
                         pending[next_fut] = (next_index, next_path, next_temp)
                         submitted += 1
@@ -793,6 +993,14 @@ class MCUMediaTool:
                 src_path = success[idx]
                 final_path = output_dir / f"{exported:0{digits}d}.jpeg"
                 src_path.replace(final_path)
+                if want_rgb888:
+                    src_bin = _sidecar_bin_path(src_path, "rgb888")
+                    if src_bin.exists():
+                        src_bin.replace(_sidecar_bin_path(final_path, "rgb888"))
+                if want_rgb565:
+                    src_bin = _sidecar_bin_path(src_path, "rgb565")
+                    if src_bin.exists():
+                        src_bin.replace(_sidecar_bin_path(final_path, "rgb565"))
                 exported += 1
 
             for path in temp_paths:
@@ -804,12 +1012,21 @@ class MCUMediaTool:
             return
 
         packed_count, max_size = build_jpk(output_dir, jpk_path)
+        rgb888_path, rgb565_path = self._final_bin_paths(jpk_path)
+        if want_rgb888:
+            _concat_bins(output_dir=output_dir, exported=exported, digits=digits, tag="rgb888", final_path=rgb888_path)
+        if want_rgb565:
+            _concat_bins(output_dir=output_dir, exported=exported, digits=digits, tag="rgb565", final_path=rgb565_path)
         print("\n完成。")
         print(f"  - JPEG 張數: {exported}")
         print(f"  - JPEG 目錄: {output_dir}")
         print(f"  - JPK 檔案: {jpk_path}")
         print(f"  - JPK 幀數: {packed_count}")
         print(f"  - 最大 JPEG bytes: {max_size}")
+        if want_rgb888:
+            print(f"  - RGB888 BIN: {rgb888_path}")
+        if want_rgb565:
+            print(f"  - RGB565 BIN: {rgb565_path}")
 
 
 def main() -> int:

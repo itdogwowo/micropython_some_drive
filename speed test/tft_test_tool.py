@@ -35,6 +35,7 @@ def _setup():
     else:
         _w = int(bus.shared.get("tft_width", 240))
         _h = int(bus.shared.get("tft_height", 536))
+    _set_rgb565()
 
 def _color(r, g, b):
     """RGB 888 → RGB565 大端"""
@@ -54,18 +55,39 @@ def _hsv(h, s=100, v=100):
     r, g, b = [(v, t, p), (q, v, p), (p, v, t), (p, q, v), (t, p, v), (v, p, q)][i]
     return ((int(r * 31) & 0x1F) << 11) | ((int(g * 63) & 0x3F) << 5) | (int(b * 31) & 0x1F)
 
+def _bpp():
+    return _lcd.bytes_per_pixel if hasattr(_lcd, 'bytes_per_pixel') else 2
+
+def _fill_chunk(chunk, color565, count):
+    """用 color565 填入 chunk（每 pixel bpp bytes），自動處理 565/666 轉換"""
+    bpp = _bpp()
+    if bpp >= 3:
+        r5 = (color565 >> 11) & 0x1F
+        g6 = (color565 >> 5) & 0x3F
+        b5 = color565 & 0x1F
+        r6 = (r5 << 1) | (r5 >> 4)
+        b6 = (b5 << 1) | (b5 >> 4)
+        for i in range(count):
+            off = i * 3
+            chunk[off] = r6
+            chunk[off + 1] = g6
+            chunk[off + 2] = b6
+    else:
+        for i in range(count):
+            chunk[i * 2] = color565 >> 8
+            chunk[i * 2 + 1] = color565 & 0xFF
+
 def _write_solid(color565):
-    """全螢幕填色 — 透過 TFT._bus 層零大分配寫入"""
-    chunk = bytearray(8192)
-    for i in range(4096):
-        chunk[i * 2] = color565 >> 8
-        chunk[i * 2 + 1] = color565 & 0xFF
+    """全螢幕填色 — 自動適應 bytes_per_pixel (565/666)"""
+    bpp = _bpp()
+    chunk = bytearray(4096 * bpp)
+    _fill_chunk(chunk, color565, 4096)
     total = _w * _h
     mv = memoryview(chunk)
     written = 0
     while written < total:
         n = min(total - written, 4096)
-        hn = _lcd._bus.write_data_async(mv[:n * 2])
+        hn = _lcd._bus.write_data_async(mv[:n * bpp])
         if hn is not None: _lcd._bus.wait(hn)
         written += n
     _lcd._bus.flush()
@@ -97,21 +119,20 @@ def fill_colors():
 def color_bars():
     """八色垂直條 — 透過 TFT 接口"""
     _setup()
+    bpp = _bpp()
     bar_h = _h // 8
     for i, c in enumerate([0xF800, 0x07E0, 0x001F, 0xFFFF,
                            0xFFE0, 0x07FF, 0xF81F, 0x0000]):
         y0, y1 = i * bar_h, (i + 1) * bar_h - 1 if i < 7 else _h - 1
         pixels = _w * (y1 - y0 + 1)
-        chunk = bytearray(4096 * 2)
-        for j in range(4096):
-            chunk[j * 2] = c >> 8
-            chunk[j * 2 + 1] = c & 0xFF
+        chunk = bytearray(4096 * bpp)
+        _fill_chunk(chunk, c, 4096)
         mv = memoryview(chunk)
         _lcd.set_window(0, y0, _w - 1, y1)
         remaining = pixels
         while remaining > 0:
             n = min(remaining, 4096)
-            hn = _lcd._bus.write_data_async(mv[:n * 2])
+            hn = _lcd._bus.write_data_async(mv[:n * bpp])
             if hn is not None: _lcd._bus.wait(hn)
             remaining -= n
         _lcd._bus.flush()
@@ -121,22 +142,30 @@ def color_bars():
 def gradient():
     """RGB 水平漸變 — 透過 TFT 接口"""
     _setup()
+    bpp = _bpp()
     gc.collect()
-    row = bytearray(_w * 2)
+    row = bytearray(_w * bpp)
     for x in range(_w):
         r = int(x * 255 / _w)
         g = int((1 - abs(x - _w / 2) / (_w / 2)) * 255)
         b = int((_w - x) * 255 / _w)
         c = _color(r, g, b)
-        row[x * 2] = c >> 8
-        row[x * 2 + 1] = c & 0xFF
+        off = x * bpp
+        if bpp >= 3:
+            r5 = (c >> 11) & 0x1F; g6 = (c >> 5) & 0x3F; b5 = c & 0x1F
+            row[off] = (r5 << 1) | (r5 >> 4)
+            row[off + 1] = g6
+            row[off + 2] = (b5 << 1) | (b5 >> 4)
+        else:
+            row[off] = c >> 8
+            row[off + 1] = c & 0xFF
 
     BATCH = 40
     for y in range(0, _h, BATCH):
         h = min(BATCH, _h - y)
-        buf = bytearray(_w * h * 2)
+        buf = bytearray(_w * h * bpp)
         for i in range(h):
-            off = i * _w * 2
+            off = i * _w * bpp
             buf[off:off + len(row)] = row
         _lcd.set_window(0, y, _w - 1, y + h - 1)
         hn = _lcd._bus.write_data_async(buf)
@@ -148,17 +177,26 @@ def gradient():
 def checkerboard():
     """棋盤格 (40x40) — 透過 TFT 接口"""
     _setup()
+    bpp = _bpp()
     sq = 40
-    row_buf = bytearray(_w * sq * 2)
+    row_buf = bytearray(_w * sq * bpp)
+    def _set_color(off, c):
+        if bpp >= 3:
+            r5 = (c >> 11) & 0x1F; g6 = (c >> 5) & 0x3F; b5 = c & 0x1F
+            row_buf[off] = (r5 << 1) | (r5 >> 4)
+            row_buf[off + 1] = g6
+            row_buf[off + 2] = (b5 << 1) | (b5 >> 4)
+        else:
+            row_buf[off] = c >> 8
+            row_buf[off + 1] = c & 0xFF
     for row_y in range(0, _h, sq):
         for py in range(sq):
             for bx in range(0, _w, sq):
                 is_w = ((bx // sq) + (row_y // sq)) % 2 == 0
                 c = 0xFFFF if is_w else 0x0000
                 for px in range(sq):
-                    idx = ((py * _w) + bx + px) * 2
-                    row_buf[idx] = c >> 8
-                    row_buf[idx + 1] = c & 0xFF
+                    idx = ((py * _w) + bx + px) * bpp
+                    _set_color(idx, c)
         _lcd.set_window(0, row_y, _w - 1, row_y + sq - 1)
         hn = _lcd._bus.write_data_async(row_buf)
         if hn is not None: _lcd._bus.wait(hn)
@@ -169,18 +207,29 @@ def checkerboard():
 def color_loop():
     """HSV 色輪循環動畫 (Ctrl-C 停止) — 透過 TFT 接口"""
     _setup()
+    bpp = _bpp()
     print("color_loop running... (Ctrl-C to stop)")
     hue = 0
     try:
         while True:
             for y in range(0, _h, 2):
                 c = _hsv((hue + y) % 360)
-                buf = bytearray(_w * 2 * 2)
+                buf = bytearray(_w * 2 * bpp)
                 for x in range(_w):
-                    buf[x * 2] = c >> 8
-                    buf[x * 2 + 1] = c & 0xFF
-                    buf[_w * 2 + x * 2] = c >> 8
-                    buf[_w * 2 + x * 2 + 1] = c & 0xFF
+                    off = x * bpp
+                    if bpp >= 3:
+                        r5 = (c >> 11) & 0x1F; g6 = (c >> 5) & 0x3F; b5 = c & 0x1F
+                        buf[off] = (r5 << 1) | (r5 >> 4)
+                        buf[off + 1] = g6
+                        buf[off + 2] = (b5 << 1) | (b5 >> 4)
+                        buf[_w * bpp + off] = (r5 << 1) | (r5 >> 4)
+                        buf[_w * bpp + off + 1] = g6
+                        buf[_w * bpp + off + 2] = (b5 << 1) | (b5 >> 4)
+                    else:
+                        buf[off] = c >> 8
+                        buf[off + 1] = c & 0xFF
+                        buf[_w * 2 + off] = c >> 8
+                        buf[_w * 2 + off + 1] = c & 0xFF
                 _lcd.set_window(0, y, _w - 1, y + 1)
                 hn = _lcd._bus.write_data_async(buf)
                 if hn is not None: _lcd._bus.wait(hn)
@@ -298,7 +347,7 @@ def fps_test(frames=100):
     t0 = time.ticks_us()
     for n in range(frames):
         cs.value(0)
-        spi.write(b'', cmd=0x32, addr=0x002C00, multiline=False)
+        _lcd.dc(1)
         chunk = chunk_w if n & 1 else chunk_b
         remaining = total
         while remaining > 0:
@@ -359,7 +408,7 @@ def _colmod(cmd_val):
     _lcd.write_cmd_data(0x3A, bytes([cmd_val]))
 
 def _set_rgb888():
-    _colmod(0x76)
+    _colmod(0x66)
     _lcd.bytes_per_pixel = 3
 
 def _set_rgb565():
@@ -424,7 +473,7 @@ def fps_test888(frames=100):
     t0 = time.ticks_us()
     for n in range(frames):
         cs.value(0)
-        spi.write(b'', cmd=0x32, addr=0x002C00, multiline=False)
+        _lcd.dc(1)
         chunk = chunk_w if n & 1 else chunk_b
         remaining = px3
         while remaining > 0:
@@ -474,9 +523,10 @@ def all():
 def color_sweep():
     """HSV 色條由上而下刷動（源自 color_loop.py）"""
     _setup()
+    bpp = _bpp()
     gc.collect()
     SPEED = 5
-    _sw_chunk = bytearray(8192)
+    _sw_chunk = bytearray(4096 * bpp)
 
     def _hsv_rgb(hue, sat=255, val=100):
         h = float(hue % 360) / 60.0
@@ -492,9 +542,7 @@ def color_sweep():
         while True:
             r, g, b = _hsv_rgb(hue)
             c = _color(r, g, b)
-            for i in range(4096):
-                _sw_chunk[i * 2] = c >> 8
-                _sw_chunk[i * 2 + 1] = c & 0xFF
+            _fill_chunk(_sw_chunk, c, 4096)
             mv = memoryview(_sw_chunk)
             for j in range(0, _h, SPEED):
                 _lcd.set_window(0, j, _w - 1, min(j + SPEED, _h) - 1)
@@ -502,7 +550,7 @@ def color_sweep():
                 remaining = pixels
                 while remaining > 0:
                     n = min(remaining, 4096)
-                    hn = _lcd._bus.write_data_async(mv[:n * 2])
+                    hn = _lcd._bus.write_data_async(mv[:n * bpp])
                     if hn is not None: _lcd._bus.wait(hn)
                     remaining -= n
                 _lcd._bus.flush()

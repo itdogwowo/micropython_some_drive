@@ -12,6 +12,8 @@ let imageIndex = 0;
 let imageObjUrl = null;
 let jpegBlobs = [];
 let jpkBlob = null;
+let rgb888Blob = null;
+let rgb565Blob = null;
 let isConverting = false;
 let isPlaying = false;
 let slideshowTimer = 0;
@@ -274,9 +276,13 @@ function resetProgress() {
   const ps = $("pickStatus");
   if (ps) ps.textContent = "";
   $("downloadJpk").disabled = true;
+  $("downloadRgb888").disabled = true;
+  $("downloadRgb565").disabled = true;
   $("downloadAll").disabled = true;
   jpegBlobs = [];
   jpkBlob = null;
+  rgb888Blob = null;
+  rgb565Blob = null;
 }
 
 function ensureThumbVideo() {
@@ -734,6 +740,10 @@ function params() {
     video_parallel: $("videoParallel") ? $("videoParallel").value : "4",
     video_start_frame: $("videoStartFrame") ? $("videoStartFrame").value : "0",
     video_end_frame: $("videoEndFrame") ? $("videoEndFrame").value : "0",
+    bin_mode: $("binMode") ? $("binMode").value : "none",
+    rgb888_order: $("rgb888Order") ? $("rgb888Order").value : "rgb",
+    rgb565_order: $("rgb565Order") ? $("rgb565Order").value : "rgb",
+    rgb565_byte_order: $("rgb565ByteOrder") ? $("rgb565ByteOrder").value : "le",
     crop_cx: String(_cropCx),
     crop_cy: String(_cropCy),
     crop_zoom: String(_cropZoom),
@@ -1703,6 +1713,119 @@ async function buildJpk(blobs) {
   return new Blob(parts, { type: "application/octet-stream" });
 }
 
+function getBinPlan(p) {
+  const mode = String(p?.bin_mode || "none").toLowerCase();
+  return {
+    wantRgb888: mode === "rgb888" || mode === "both",
+    wantRgb565: mode === "rgb565" || mode === "both",
+    rgb888Order: String(p?.rgb888_order || "rgb").toLowerCase(),
+    rgb565Order: String(p?.rgb565_order || "rgb").toLowerCase(),
+    rgb565ByteOrder: String(p?.rgb565_byte_order || "le").toLowerCase(),
+  };
+}
+
+function updateBinOptionUi() {
+  const mode = $("binMode") ? $("binMode").value : "none";
+  const wantRgb888 = mode === "rgb888" || mode === "both";
+  const wantRgb565 = mode === "rgb565" || mode === "both";
+  if ($("rgb888Order")) $("rgb888Order").disabled = !wantRgb888;
+  if ($("rgb565Order")) $("rgb565Order").disabled = !wantRgb565;
+  if ($("rgb565ByteOrder")) $("rgb565ByteOrder").disabled = !wantRgb565;
+}
+
+async function decodeJpegBlobToRgba(blob, w, h) {
+  const bmp = await createImageBitmap(blob);
+  try {
+    const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(w, h) : document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(bmp, 0, 0, w, h);
+    return ctx.getImageData(0, 0, w, h).data;
+  } finally {
+    try {
+      if (bmp && typeof bmp.close === "function") bmp.close();
+    } catch {
+    }
+  }
+}
+
+function rgbaToRgb888Bytes(rgba, order) {
+  const ord = String(order || "rgb").toLowerCase();
+  const mapping = { r: 0, g: 1, b: 2 };
+  if (ord.length !== 3 || ord.split("").some((ch) => !(ch in mapping))) {
+    throw new Error(`不支援的 RGB888 顏色次序: ${ord}`);
+  }
+  const out = new Uint8Array((rgba.length / 4) * 3);
+  let o = 0;
+  for (let i = 0; i < rgba.length; i += 4) {
+    const rgb = [rgba[i], rgba[i + 1], rgba[i + 2]];
+    out[o++] = rgb[mapping[ord[0]]];
+    out[o++] = rgb[mapping[ord[1]]];
+    out[o++] = rgb[mapping[ord[2]]];
+  }
+  return out;
+}
+
+function rgbaToRgb565Bytes(rgba, order, byteOrder) {
+  const ord = String(order || "rgb").toLowerCase();
+  const mapping = { r: 0, g: 1, b: 2 };
+  if (ord.length !== 3 || ord.split("").some((ch) => !(ch in mapping))) {
+    throw new Error(`不支援的 RGB565 顏色次序: ${ord}`);
+  }
+  const bo = String(byteOrder || "le").toLowerCase();
+  if (bo !== "le" && bo !== "be") {
+    throw new Error(`不支援的 RGB565 byte order: ${bo}`);
+  }
+  const out = new Uint8Array((rgba.length / 4) * 2);
+  let o = 0;
+  for (let i = 0; i < rgba.length; i += 4) {
+    const rgb = [rgba[i], rgba[i + 1], rgba[i + 2]];
+    const r = rgb[mapping[ord[0]]];
+    const g = rgb[mapping[ord[1]]];
+    const b = rgb[mapping[ord[2]]];
+    const value = ((r & 0xf8) << 8) | ((g & 0xfc) << 3) | ((b & 0xf8) >> 3);
+    if (bo === "le") {
+      out[o++] = value & 0xff;
+      out[o++] = (value >> 8) & 0xff;
+    } else {
+      out[o++] = (value >> 8) & 0xff;
+      out[o++] = value & 0xff;
+    }
+  }
+  return out;
+}
+
+async function buildRawBinOutputs(blobs, p, onProgress) {
+  const plan = getBinPlan(p);
+  if (!plan.wantRgb888 && !plan.wantRgb565) {
+    return { rgb888Blob: null, rgb565Blob: null };
+  }
+  const w = Math.max(1, parseInt(p.width || "160", 10));
+  const h = Math.max(1, parseInt(p.height || "160", 10));
+  const rgb888Parts = [];
+  const rgb565Parts = [];
+  for (let i = 0; i < blobs.length; i++) {
+    const rgba = await decodeJpegBlobToRgba(blobs[i], w, h);
+    if (plan.wantRgb888) rgb888Parts.push(rgbaToRgb888Bytes(rgba, plan.rgb888Order));
+    if (plan.wantRgb565) rgb565Parts.push(rgbaToRgb565Bytes(rgba, plan.rgb565Order, plan.rgb565ByteOrder));
+    if (typeof onProgress === "function") onProgress(i + 1, blobs.length);
+    if (i % 4 === 0) await new Promise((r) => setTimeout(r, 0));
+  }
+  return {
+    rgb888Blob: plan.wantRgb888 ? new Blob(rgb888Parts, { type: "application/octet-stream" }) : null,
+    rgb565Blob: plan.wantRgb565 ? new Blob(rgb565Parts, { type: "application/octet-stream" }) : null,
+  };
+}
+
+function buildOutputSummary(p) {
+  const plan = getBinPlan(p);
+  const parts = ["output.jpk", "JPEG.zip"];
+  if (plan.wantRgb888) parts.push(`output_rgb888.bin (${plan.rgb888Order.toUpperCase()})`);
+  if (plan.wantRgb565) parts.push(`output_rgb565.bin (${plan.rgb565Order.toUpperCase()}, ${plan.rgb565ByteOrder.toUpperCase()})`);
+  return parts.join(", ");
+}
+
 async function renderImageToJpegBlob(file, p) {
   const bmp = await createImageBitmap(file);
   const w = Math.max(1, parseInt(p.width || "160", 10));
@@ -2501,10 +2624,18 @@ async function run() {
       }
       jpegBlobs = blobs;
       jpkBlob = await buildJpk(blobs);
+      $("result").textContent = `Mode: photo\nCount: ${blobs.length}\nInput FPS: ${getInputFps()}\nStep: every ${step} frames\nRange: ${startFrame}..${endFrame} (of ${totalFrames - 1})\nMax JPEG bytes: ${maxBytes}\nMax JPEG cap: ${Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0) ? `${Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0)}KB` : "—"}\n\n正在產生額外輸出...`;
+      const rawBins = await buildRawBinOutputs(blobs, p, (doneRaw, totalRaw) => {
+        $("result").textContent = `Mode: photo\nCount: ${blobs.length}\nInput FPS: ${getInputFps()}\nStep: every ${step} frames\nRange: ${startFrame}..${endFrame} (of ${totalFrames - 1})\nMax JPEG bytes: ${maxBytes}\nMax JPEG cap: ${Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0) ? `${Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0)}KB` : "—"}\n\n正在產生 RGB BIN... ${doneRaw}/${totalRaw}`;
+      });
+      rgb888Blob = rawBins.rgb888Blob;
+      rgb565Blob = rawBins.rgb565Blob;
       setProgress(100);
       $("downloadJpk").disabled = false;
+      $("downloadRgb888").disabled = !rgb888Blob;
+      $("downloadRgb565").disabled = !rgb565Blob;
       $("downloadAll").disabled = false;
-      $("result").textContent = `Mode: photo\nCount: ${blobs.length}\nInput FPS: ${getInputFps()}\nStep: every ${step} frames\nRange: ${startFrame}..${endFrame} (of ${totalFrames - 1})\nMax JPEG bytes: ${maxBytes}\nMax JPEG cap: ${Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0) ? `${Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0)}KB` : "—"}\n\n已產生 output.jpk，可下載或逐張下載 JPEG。`;
+      $("result").textContent = `Mode: photo\nCount: ${blobs.length}\nInput FPS: ${getInputFps()}\nStep: every ${step} frames\nRange: ${startFrame}..${endFrame} (of ${totalFrames - 1})\nMax JPEG bytes: ${maxBytes}\nMax JPEG cap: ${Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0) ? `${Math.max(0, parseInt(p.max_jpeg_kb || "0", 10) || 0)}KB` : "—"}\nOutputs: ${buildOutputSummary(p)}\n\n已完成轉換，可直接下載。`;
     } catch (e) {
       setProgress(0);
       $("result").textContent = String(e && e.message ? e.message : e);
@@ -2647,10 +2778,18 @@ async function run() {
       }
       jpegBlobs = blobs;
       jpkBlob = await buildJpk(blobs);
+      $("result").textContent = `Mode: video\nCount: ${blobs.length}\nMax JPEG bytes: ${maxBytes}\nMax JPEG cap: ${capKb ? `${capKb}KB` : "—"}\n\n正在產生額外輸出...`;
+      const rawBins = await buildRawBinOutputs(blobs, p, (doneRaw, totalRaw) => {
+        $("result").textContent = `Mode: video\nCount: ${blobs.length}\nMax JPEG bytes: ${maxBytes}\nMax JPEG cap: ${capKb ? `${capKb}KB` : "—"}\n\n正在產生 RGB BIN... ${doneRaw}/${totalRaw}`;
+      });
+      rgb888Blob = rawBins.rgb888Blob;
+      rgb565Blob = rawBins.rgb565Blob;
       setProgress(100);
       $("downloadJpk").disabled = false;
+      $("downloadRgb888").disabled = !rgb888Blob;
+      $("downloadRgb565").disabled = !rgb565Blob;
       $("downloadAll").disabled = false;
-      $("result").textContent = `Mode: video\nCount: ${blobs.length}\nMax JPEG bytes: ${maxBytes}\nMax JPEG cap: ${capKb ? `${capKb}KB` : "—"}\n\n已產生 output.jpk，可下載或逐張下載 JPEG。`;
+      $("result").textContent = `Mode: video\nCount: ${blobs.length}\nMax JPEG bytes: ${maxBytes}\nMax JPEG cap: ${capKb ? `${capKb}KB` : "—"}\nOutputs: ${buildOutputSummary(p)}\n\n已完成轉換，可直接下載。`;
     } catch (e) {
       setProgress(0);
       $("result").textContent = String(e && e.message ? e.message : e);
@@ -2837,6 +2976,16 @@ $("downloadJpk").addEventListener("click", () => {
   downloadBlob(jpkBlob, "output.jpk");
 });
 
+$("downloadRgb888").addEventListener("click", () => {
+  if (!rgb888Blob) return;
+  downloadBlob(rgb888Blob, "output_rgb888.bin");
+});
+
+$("downloadRgb565").addEventListener("click", () => {
+  if (!rgb565Blob) return;
+  downloadBlob(rgb565Blob, "output_rgb565.bin");
+});
+
 $("downloadAll").addEventListener("click", async () => {
   if (!jpegBlobs.length) return;
   $("downloadAll").disabled = true;
@@ -2854,8 +3003,10 @@ $("downloadAll").addEventListener("click", async () => {
 
 setPicked([]);
 setPlayButton();
+updateBinOptionUi();
 initRanges();
 initVideoRange();
+if ($("binMode")) $("binMode").addEventListener("input", updateBinOptionUi);
 window.addEventListener("resize", () => {
   if (mode === "photo") showImageAt(imageIndex);
   if (mode === "video") renderProcessedFromVideo();

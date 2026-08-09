@@ -17,6 +17,14 @@ def I(msg,defv=""):
 def R(c): return SP.run(c,capture_output=True,text=True)
 def RS(c): return SP.run(c,capture_output=True,text=True,shell=True)
 
+def _msg(r):
+    return (r.stderr or r.stdout or "").strip()
+
+def _need_sudo(msg):
+    m=(msg or "").lower()
+    ks=("writable disk is required","ownership of the affected disk is required","not permitted","permission denied")
+    return any(k in m for k in ks)
+
 # ── 平台層 ──
 def _scan():
     d=[]
@@ -53,8 +61,19 @@ def _unmount(dev):
 def _fmt(dev):
     if OS=="Darwin":
         R(["diskutil","unmountDisk",dev])
-        return R(["diskutil","eraseDisk","FAT32","SDCARD",dev]).returncode==0
-    return False
+        last=None; perm=False
+        for fs in ("MS-DOS FAT32","FAT32"):
+            last=R(["diskutil","eraseDisk",fs,"SDCARD",dev])
+            if last.returncode==0: return True,""
+            if _need_sudo(_msg(last)):
+                perm=True
+                sudo=R(["sudo","-n","diskutil","eraseDisk",fs,"SDCARD",dev])
+                if sudo.returncode==0: return True,""
+                last=sudo
+        if perm:
+            return False,"需要系統管理員權限。請改用: sudo python3 tools/storage_tool.py"
+        return False,_msg(last)
+    return False,"unsupported OS"
 
 def _w(dev,data,off):
     sz=((len(data)+S-1)//S)*S
@@ -84,14 +103,24 @@ def A(dev):
     return json.load(open(p)) if p and os.path.exists(p) else None
 
 def F(dev,cap):
-    v=I("FAT MB [32]: ","32")
+    v=I("FAT MB [512]: ","512")
     if v is None: return
     f=int(v)
-    if f<=0: _fmt(dev); print("✅"); return
+    if f<=0:
+        ok,msg=_fmt(dev)
+        if ok: print("✅")
+        else:
+            print("❌ 格式化失敗")
+            if msg: print(msg)
+        return
     off=f*1048576//512; t=cap//512
     print("sector:{} FAT:{}MB managed:~{:.1f}GB".format(off,off*512/1048576,(t-off)*512/1073741824))
     if I("確認? (yes): ") is None: return
-    if not _fmt(dev): print("❌"); return
+    ok,msg=_fmt(dev)
+    if not ok:
+        print("❌ 格式化失敗")
+        if msg: print(msg)
+        return
     m=_mp(dev)
     a={"_version":1,"_offset":off,"_total_sectors":t}
     if m:

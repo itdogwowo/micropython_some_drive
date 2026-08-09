@@ -154,6 +154,44 @@
           </div>
         </div>
         <div>
+          <label>BIN 輸出格式</label>
+          <select id="binMode">
+            <option value="none">不輸出</option>
+            <option value="rgb888">RGB888</option>
+            <option value="rgb565">RGB565</option>
+            <option value="both">RGB888 + RGB565</option>
+          </select>
+        </div>
+        <div>
+          <label>RGB888 顏色次序</label>
+          <select id="rgb888Order">
+            <option value="rgb">RGB</option>
+            <option value="bgr">BGR</option>
+            <option value="grb">GRB</option>
+            <option value="gbr">GBR</option>
+            <option value="rbg">RBG</option>
+            <option value="brg">BRG</option>
+          </select>
+        </div>
+        <div>
+          <label>RGB565 顏色次序</label>
+          <select id="rgb565Order">
+            <option value="rgb">RGB</option>
+            <option value="bgr">BGR</option>
+            <option value="grb">GRB</option>
+            <option value="gbr">GBR</option>
+            <option value="rbg">RBG</option>
+            <option value="brg">BRG</option>
+          </select>
+        </div>
+        <div>
+          <label>RGB565 Byte Order</label>
+          <select id="rgb565ByteOrder">
+            <option value="le">Little Endian</option>
+            <option value="be">Big Endian</option>
+          </select>
+        </div>
+        <div>
           <label>Input FPS</label>
           <div class="rangeRow">
             <input id="inputFps" type="range" value="30" min="1" max="120" step="1" />
@@ -253,11 +291,13 @@
       <div class="row" style="gap:10px">
         <button id="run" disabled>開始轉換</button>
         <button id="downloadJpk" disabled>下載 output.jpk</button>
+        <button id="downloadRgb888" disabled>下載 output_rgb888.bin</button>
+        <button id="downloadRgb565" disabled>下載 output_rgb565.bin</button>
         <button id="downloadAll" disabled>下載 JPEG.zip</button>
       </div>
       <div style="height:12px"></div>
       <div id="result" class="kv"></div>
     </div>
-    <script src="/app.js?v=8"></script>
+    <script src="/app.js?v=9"></script>
   </body>
 </html>
